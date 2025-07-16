@@ -55,6 +55,18 @@ export function MainNavigation() {
                 {item.name}
               </motion.a>
             ))}
+            <SignedIn>
+              <motion.a
+                href="/dashboard"
+                className="text-gray-600 hover:text-gray-900 transition-colors font-medium text-sm dark:text-gray-400 dark:hover:text-gray-50"
+                whileHover={{ y: -1 }}
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 * (navItems.length + 1) }}
+              >
+                Dashboard
+              </motion.a>
+            </SignedIn>
             <SignedOut>
               <SignInButton mode="modal">
                 <Button
@@ -115,6 +127,15 @@ export function MainNavigation() {
                 {item.name}
               </Link>
             ))}
+            <SignedIn>
+              <Link
+                href="/dashboard"
+                className="block text-gray-600 hover:text-gray-900 transition-colors font-medium text-sm dark:text-gray-400 dark:hover:text-gray-50"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Dashboard
+              </Link>
+            </SignedIn>
             <Separator className="my-3 bg-gray-200 dark:bg-gray-700" />
             <div className="flex flex-col space-y-2">
               <SignedOut>
