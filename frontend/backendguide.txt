@@ -1,0 +1,1107 @@
+# Complete Backend Implementation Guide for Talent AI
+# Detailed Step-by-Step Instructions with Clerk Authentication
+
+## Table of Contents
+1. [Prerequisites & Setup](#prerequisites--setup)
+2. [Database Configuration](#database-configuration)
+3. [Prisma Setup & Schema](#prisma-setup--schema)
+4. [Clerk Authentication Setup](#clerk-authentication-setup)
+5. [API Routes Implementation](#api-routes-implementation)
+6. [Frontend Code Modifications](#frontend-code-modifications)
+7. [Dummy Data Removal](#dummy-data-removal)
+8. [File Upload Implementation](#file-upload-implementation)
+9. [Database Indexes & Performance](#database-indexes--performance)
+10. [Environment Configuration](#environment-configuration)
+11. [Testing & Validation](#testing--validation)
+12. [Deployment Guide](#deployment-guide)
+
+---
+
+## 1. Prerequisites & Setup
+
+### Install Required Dependencies
+\`\`\`bash
+# Core dependencies
+npm install prisma @prisma/client
+npm install @clerk/nextjs @clerk/themes
+npm install @vercel/blob
+npm install zod react-hook-form @hookform/resolvers
+npm install bcryptjs @types/bcryptjs
+npm install date-fns
+npm install react-hot-toast
+
+# Development dependencies
+npm install -D @types/node
+
+\`\`\`
+
+### 6. Create Protected Route Components
+
+#### A. Create Role Selection Page (app/role-selection/page.tsx)
+**REPLACE ENTIRE CONTENT**:
+
+\`\`\`typescript
+import { redirect } from 'next/navigation'
+import { getCurrentUser } from '@/lib/auth'
+import RoleSelectionClient from './role-selection-client'
+
+export default async function RoleSelectionPage() {
+  const user = await getCurrentUser()
+
+  if (!user) {
+    redirect('/sign-in')
+  }
+
+  if (user.role) {
+    // User already has a role, redirect to appropriate dashboard
+    if (user.role === 'RECRUITER') {
+      redirect('/dashboard')
+    } else if (user.role === 'CANDIDATE') {
+      redirect('/candidate/dashboard')
+    }
+  }
+
+  return <RoleSelectionClient />
+}
+\`\`\`
+
+#### B. Update Role Selection Client (app/role-selection/role-selection-client.tsx)
+**CREATE NEW FILE**:
+
+\`\`\`typescript
+"use client"
+
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Users, Briefcase, Loader2 } from 'lucide-react'
+import toast from 'react-hot-toast'
+
+export default function RoleSelectionClient() {
+  const [loading, setLoading] = useState(false)
+  const router = useRouter()
+
+  const handleRoleSelect = async (role: 'RECRUITER' | 'CANDIDATE') => {
+    try {
+      setLoading(true)
+      
+      const response = await fetch('/api/user', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ role }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to update role')
+      }
+
+      toast.success(`Role set to ${role.toLowerCase()}`)
+      
+      if (role === 'RECRUITER') {
+        router.push('/recruiter-profile-setup')
+      } else {
+        router.push('/candidate-profile-setup')
+      }
+    } catch (error) {
+      console.error('Error setting role:', error)
+      toast.error('Failed to set role. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50/50 p-4 sm:p-8 flex items-center justify-center dark:bg-gray-900">
+      <Card className="w-full max-w-2xl text-center shadow-lg bg-white dark:bg-gray-800 dark:border-gray-700">
+        <CardHeader>
+          <CardTitle className="text-3xl font-bold text-gray-900 dark:text-gray-100">Select Your Role</CardTitle>
+          <CardDescription className="text-gray-600 dark:text-gray-400">
+            Choose your role to get started with Talent AI
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
+          <div
+            className="flex flex-col items-center space-y-4 p-6 border rounded-lg shadow-sm hover:shadow-md transition-all cursor-pointer bg-white dark:bg-gray-700 dark:border-gray-600"
+            onClick={() => !loading && handleRoleSelect('RECRUITER')}
+          >
+            <Briefcase className="h-16 w-16 text-gray-700 dark:text-gray-300" />
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Recruiter</h2>
+            <p className="text-gray-600 text-sm dark:text-gray-400">Post jobs and find the best candidates</p>
+            <Button 
+              className="mt-4 bg-black hover:bg-gray-800 text-base py-5 w-full dark:bg-gray-100 dark:text-black dark:hover:bg-gray-200" 
+              disabled={loading}
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+              I'm a Recruiter
+            </Button>
+          </div>
+          <div
+            className="flex flex-col items-center space-y-4 p-6 border rounded-lg shadow-sm hover:shadow-md transition-all cursor-pointer bg-white dark:bg-gray-700 dark:border-gray-600"
+            onClick={() => !loading && handleRoleSelect('CANDIDATE')}
+          >
+            <Users className="h-16 w-16 text-gray-700 dark:text-gray-300" />
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Candidate</h2>
+            <p className="text-gray-600 text-sm dark:text-gray-400">Find your dream job with AI interviews</p>
+            <Button 
+              className="mt-4 bg-black hover:bg-gray-800 text-base py-5 w-full dark:bg-gray-100 dark:text-black dark:hover:bg-gray-200" 
+              disabled={loading}
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+              I'm a Candidate
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+\`\`\`
+
+### 7. Fix Theme Toggle Issue - CRITICAL FIXES
+
+#### A. Install Required Dependencies
+\`\`\`bash
+npm install next-themes@^0.2.1
+\`\`\`
+
+#### B. Update Theme Provider (components/theme-provider.tsx)
+**REPLACE ENTIRE CONTENT WITH THIS EXACT CODE**:
+
+\`\`\`typescript
+"use client"
+
+import * as React from "react"
+import { ThemeProvider as NextThemesProvider } from "next-themes"
+import type { ThemeProviderProps } from "next-themes/dist/types"
+
+export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
+  return <NextThemesProvider {...props}>{children}</NextThemesProvider>
+}
+\`\`\`
+
+#### C. Fix Theme Toggle Component (components/theme-toggle.tsx)
+**REPLACE ENTIRE CONTENT WITH THIS EXACT CODE**:
+
+\`\`\`typescript
+"use client"
+
+import * as React from "react"
+import { Moon, Sun } from 'lucide-react'
+import { useTheme } from "next-themes"
+
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+
+export function ThemeToggle() {
+  const { setTheme } = useTheme()
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="icon">
+          <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+          <Moon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+          <span className="sr-only">Toggle theme</span>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={() => setTheme("light")}>
+          Light
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setTheme("dark")}>
+          Dark
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setTheme("system")}>
+          System
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+\`\`\`
+
+#### D. Update Layout.tsx for Theme Fix (app/layout.tsx)
+**REPLACE THE ThemeProvider SECTION WITH**:
+
+\`\`\`typescript
+<ThemeProvider
+  attribute="class"
+  defaultTheme="system"
+  enableSystem
+  disableTransitionOnChange
+>
+\`\`\`
+
+### 8. Complete Dashboard Implementation
+
+#### A. Create Recruiter Dashboard (app/dashboard/recruiter-dashboard.tsx)
+**CREATE NEW FILE**:
+
+\`\`\`typescript
+"use client"
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Plus, BarChart3, Users, Briefcase, Clock, Loader2 } from 'lucide-react'
+import { Badge } from "@/components/ui/badge"
+import { useDashboardStats, useApplications } from '@/lib/hooks'
+import Link from 'next/link'
+
+export default function RecruiterDashboard() {
+  const { data: stats, loading: statsLoading } = useDashboardStats()
+  const { data: applicationsData, loading: applicationsLoading } = useApplications({ page: 1 })
+
+  if (statsLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50/50 p-4 sm:p-8 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50/50 p-4 sm:p-8 dark:bg-gray-900">
+      <div className="max-w-7xl mx-auto">
+        <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-6 sm:mb-8 dark:text-gray-100">
+          Recruiter Dashboard
+        </h1>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <Card className="hover:shadow-lg transition-shadow duration-300 dark:bg-gray-800 dark:border-gray-700">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">Active Jobs</CardTitle>
+              <Briefcase className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-gray-100">
+                {stats?.activeJobs || 0}
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {stats?.totalJobs || 0} total jobs
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="hover:shadow-lg transition-shadow duration-300 dark:bg-gray-800 dark:border-gray-700">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">Applications</CardTitle>
+              <Users className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-gray-100">
+                {stats?.totalApplications || 0}
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {stats?.pendingApplications || 0} pending
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="hover:shadow-lg transition-shadow duration-300 dark:bg-gray-800 dark:border-gray-700">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">Interviews</CardTitle>
+              <Clock className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-gray-100">
+                {stats?.completedInterviews || 0}
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {stats?.totalInterviews || 0} total
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="hover:shadow-lg transition-shadow duration-300 dark:bg-gray-800 dark:border-gray-700">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">Success Rate</CardTitle>
+              <BarChart3 className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-gray-100">
+                {stats?.totalApplications > 0 
+                  ? Math.round((stats?.completedInterviews / stats?.totalApplications) * 100) 
+                  : 0}%
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">interview rate</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card className="hover:shadow-lg transition-shadow duration-300 dark:bg-gray-800 dark:border-gray-700">
+            <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sm:gap-0">
+              <CardTitle className="text-xl font-bold text-gray-900 dark:text-gray-100">Recent Applications</CardTitle>
+              <Button
+                size="sm"
+                variant="outline"
+                className="bg-transparent border-gray-300 hover:bg-gray-50 w-full sm:w-auto dark:border-gray-600 dark:hover:bg-gray-700"
+                asChild
+              >
+                <Link href="/applications">View All</Link>
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {applicationsLoading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin" />
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="min-w-[120px]">Candidate</TableHead>
+                        <TableHead className="min-w-[100px]">Job</TableHead>
+                        <TableHead className="min-w-[100px]">Status</TableHead>
+                        <TableHead className="min-w-[100px]">Date</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {applicationsData?.applications?.slice(0, 5).map((app: any) => (
+                        <TableRow key={app.id}>
+                          <TableCell className="font-medium text-gray-800 dark:text-gray-200">
+                            {app.candidate.firstName} {app.candidate.lastName}
+                          </TableCell>
+                          <TableCell className="text-gray-700 dark:text-gray-300">{app.job.title}</TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className={`capitalize ${
+                                app.status === 'INTERVIEW_SCHEDULED' 
+                                  ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800" 
+                                  : "bg-gray-50 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600"
+                              }`}
+                            >
+                              {app.status.replace('_', ' ').toLowerCase()}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-gray-700 dark:text-gray-300">
+                            {new Date(app.createdAt).toLocaleDateString()}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="hover:shadow-lg transition-shadow duration-300 dark:bg-gray-800 dark:border-gray-700">
+            <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sm:gap-0">
+              <CardTitle className="text-xl font-bold text-gray-900 dark:text-gray-100">Quick Actions</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Button 
+                className="w-full bg-black hover:bg-gray-800 dark:bg-gray-100 dark:text-black dark:hover:bg-gray-200" 
+                asChild
+              >
+                <Link href="/jobs/new">
+                  <Plus className="h-4 w-4 mr-2" /> Post New Job
+                </Link>
+              </Button>
+              <Button 
+                variant="outline" 
+                className="w-full bg-transparent border-gray-300 hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700" 
+                asChild
+              >
+                <Link href="/applications">View All Applications</Link>
+              </Button>
+              <Button 
+                variant="outline" 
+                className="w-full bg-transparent border-gray-300 hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700" 
+                asChild
+              >
+                <Link href="/interviews">Manage Interviews</Link>
+              </Button>
+              <Button 
+                variant="outline" 
+                className="w-full bg-transparent border-gray-300 hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700" 
+                asChild
+              >
+                <Link href="/analytics">View Analytics</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  )
+}
+\`\`\`
+
+#### B. Create Candidate Dashboard (app/dashboard/candidate-dashboard.tsx)
+**CREATE NEW FILE**:
+
+\`\`\`typescript
+"use client"
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { FileText, Clock, CheckCircle, Search, Loader2 } from 'lucide-react'
+import { Badge } from "@/components/ui/badge"
+import { useDashboardStats, useApplications, useJobs } from '@/lib/hooks'
+import Link from 'next/link'
+
+export default function CandidateDashboard() {
+  const { data: stats, loading: statsLoading } = useDashboardStats()
+  const { data: applicationsData, loading: applicationsLoading } = useApplications({ page: 1 })
+  const { data: jobsData, loading: jobsLoading } = useJobs({ page: 1 })
+
+  if (statsLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50/50 p-4 sm:p-8 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-100 p-4 sm:p-8 dark:bg-gray-900">
+      <div className="max-w-7xl mx-auto">
+        <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-6 sm:mb-8 dark:text-gray-100">
+          Candidate Dashboard
+        </h1>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <Card className="hover:shadow-lg transition-shadow duration-300 dark:bg-gray-800 dark:border-gray-700">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Applications</CardTitle>
+              <FileText className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-gray-100">
+                {stats?.totalApplications || 0}
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {stats?.pendingApplications || 0} pending
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="hover:shadow-lg transition-shadow duration-300 dark:bg-gray-800 dark:border-gray-700">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">Interviews</CardTitle>
+              <Clock className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-gray-100">
+                {stats?.interviewsScheduled || 0}
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {stats?.interviewsCompleted || 0} completed
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="hover:shadow-lg transition-shadow duration-300 dark:bg-gray-800 dark:border-gray-700">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">Profile</CardTitle>
+              <CheckCircle className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-gray-100">
+                {stats?.profileCompletion || 0}%
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">completion</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card className="hover:shadow-lg transition-shadow duration-300 dark:bg-gray-800 dark:border-gray-700">
+            <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sm:gap-0">
+              <CardTitle className="text-xl font-bold text-gray-900 dark:text-gray-100">My Applications</CardTitle>
+              <Button
+                size="sm"
+                variant="outline"
+                className="bg-transparent border-gray-300 hover:bg-gray-50 w-full sm:w-auto dark:border-gray-600 dark:hover:bg-gray-700"
+                asChild
+              >
+                <Link href="/candidate/applications">View All</Link>
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {applicationsLoading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin" />
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="min-w-[120px]">Job Title</TableHead>
+                        <TableHead className="min-w-[100px]">Company</TableHead>
+                        <TableHead className="min-w-[100px]">Status</TableHead>
+                        <TableHead className="min-w-[100px]">Applied</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {applicationsData?.applications?.slice(0, 5).map((app: any) => (
+                        <TableRow key={app.id}>
+                          <TableCell className="font-medium text-gray-800 dark:text-gray-200">
+                            {app.job.title}
+                          </TableCell>
+                          <TableCell className="text-gray-700 dark:text-gray-300">{app.job.company}</TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className={`capitalize ${
+                                app.status === 'INTERVIEW_SCHEDULED' 
+                                  ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800" 
+                                  : "bg-gray-50 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600"
+                              }`}
+                            >
+                              {app.status.replace('_', ' ').toLowerCase()}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-gray-700 dark:text-gray-300">
+                            {new Date(app.createdAt).toLocaleDateString()}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="hover:shadow-lg transition-shadow duration-300 dark:bg-gray-800 dark:border-gray-700">
+            <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sm:gap-0">
+              <CardTitle className="text-xl font-bold text-gray-900 dark:text-gray-100">Available Jobs</CardTitle>
+              <Button
+                size="sm"
+                variant="outline"
+                className="bg-transparent border-gray-300 hover:bg-gray-50 w-full sm:w-auto dark:border-gray-600 dark:hover:bg-gray-700"
+                asChild
+              >
+                <Link href="/jobs">
+                  <Search className="h-4 w-4 mr-2" /> Browse All
+                </Link>
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {jobsLoading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin" />
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="min-w-[120px]">Job Title</TableHead>
+                        <TableHead className="min-w-[100px]">Company</TableHead>
+                        <TableHead className="min-w-[80px]">Type</TableHead>
+                        <TableHead className="min-w-[100px]">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {jobsData?.jobs?.slice(0, 5).map((job: any) => (
+                        <TableRow key={job.id}>
+                          <TableCell className="font-medium text-gray-800 dark:text-gray-200">
+                            {job.title}
+                          </TableCell>
+                          <TableCell className="text-gray-700 dark:text-gray-300">{job.company}</TableCell>
+                          <TableCell>
+                            <Badge variant="secondary" className="bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                              {job.type.replace('_', ' ').toLowerCase()}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              asChild
+                              className="bg-black text-white hover:bg-gray-800 dark:bg-gray-100 dark:text-black dark:hover:bg-gray-200"
+                            >
+                              <Link href={`/jobs/${job.id}`}>View</Link>
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  )
+}
+\`\`\`
+
+### 9. Dummy Data Locations & Removal Guide
+
+#### A. CRITICAL: Locations of All Dummy Data
+
+**File: `app/dashboard/page.tsx` (Lines 15-25)**
+\`\`\`typescript
+// REMOVE THIS DUMMY DATA:
+const jobPostings = [
+  { id: "JP001", title: "Senior Software Engineer", applicants: 120, interviews: 85, status: "Active" },
+  { id: "JP002", title: "Product Manager", applicants: 75, interviews: 50, status: "Active" },
+  { id: "JP003", title: "UX Designer", applicants: 90, interviews: 65, status: "Closed" },
+  { id: "JP004", title: "Data Scientist", applicants: 150, interviews: 100, status: "Active" },
+]
+
+const topCandidates = [
+  { id: "C001", name: "Alice Johnson", score: 92, role: "Senior Software Engineer" },
+  { id: "C002", name: "Bob Williams", score: 88, role: "Product Manager" },
+  { id: "C003", name: "Charlie Brown", score: 85, role: "UX Designer" },
+  { id: "C004", name: "Diana Miller", score: 90, role: "Data Scientist" },
+]
+\`\`\`
+
+**File: `app/candidate/dashboard/page.tsx` (Lines 15-35)**
+\`\`\`typescript
+// REMOVE THIS DUMMY DATA:
+const myApplications = [
+  { id: "APP001", jobTitle: "Senior Software Engineer", company: "TechCorp", status: "Under Review", date: "2024-07-10" },
+  { id: "APP002", jobTitle: "Product Manager", company: "InnovateLabs", status: "Interview Scheduled", date: "2024-07-05" },
+  { id: "APP003", jobTitle: "UX Designer", company: "Global Retail Co.", status: "Application Received", date: "2024-06-28" },
+]
+
+const availableJobs = [
+  { id: "JOB004", title: "Frontend Developer", company: "WebSolutions", location: "Remote", type: "Full-time" },
+  { id: "JOB005", title: "Data Scientist", company: "DataInsights", location: "New York, NY", type: "Full-time" },
+  { id: "JOB006", title: "Marketing Specialist", company: "BrandBoost", location: "San Francisco, CA", type: "Part-time" },
+  { id: "JOB007", title: "Backend Engineer", company: "CloudNine", location: "Remote", type: "Full-time" },
+]
+\`\`\`
+
+**File: `app/candidate/jobs/[id]/page.tsx` (Lines 5-80)**
+\`\`\`typescript
+// REMOVE THIS ENTIRE DUMMY JOBS ARRAY:
+const dummyJobs = [
+  {
+    id: "JOB004",
+    title: "Frontend Developer",
+    company: "WebSolutions",
+    location: "Remote",
+    type: "Full-time",
+    description: `We are seeking a talented and passionate Frontend Developer...`
+  },
+  // ... entire array needs to be removed
+]
+\`\`\`
+
+**File: `app/candidate/apply/page.tsx` (Lines 5-80)**
+\`\`\`typescript
+// REMOVE THIS ENTIRE DUMMY JOBS ARRAY (duplicate of above):
+const dummyJobs = [
+  // ... same dummy data as above
+]
+\`\`\`
+
+**File: `app/sign-in/SignInClientPage.tsx` (Lines 15-20)**
+\`\`\`typescript
+// REMOVE THESE HARDCODED CREDENTIALS:
+const DUMMY_EMAIL = "test@example.com"
+const DUMMY_PASSWORD = "password123"
+\`\`\`
+
+#### B. Step-by-Step Dummy Data Removal & Real Data Implementation
+
+**STEP 1: Replace Dashboard Page (app/dashboard/page.tsx)**
+\`\`\`typescript
+// REPLACE ENTIRE FILE CONTENT WITH:
+import { redirect } from 'next/navigation'
+import { getCurrentUser } from '@/lib/auth'
+import RecruiterDashboard from './recruiter-dashboard'
+import CandidateDashboard from './candidate-dashboard'
+
+export default async function DashboardPage() {
+  const user = await getCurrentUser()
+
+  if (!user) {
+    redirect('/sign-in')
+  }
+
+  if (!user.role) {
+    redirect('/role-selection')
+  }
+
+  if (user.role === 'RECRUITER') {
+    return <RecruiterDashboard />
+  } else if (user.role === 'CANDIDATE') {
+    return <CandidateDashboard />
+  }
+
+  // Fallback
+  redirect('/role-selection')
+}
+\`\`\`
+
+**STEP 2: Replace Candidate Dashboard (app/candidate/dashboard/page.tsx)**
+\`\`\`typescript
+// REPLACE ENTIRE FILE CONTENT WITH:
+import { redirect } from 'next/navigation'
+import { getCurrentUser } from '@/lib/auth'
+import CandidateDashboard from '@/app/dashboard/candidate-dashboard'
+
+export default async function CandidateDashboardPage() {
+  const user = await getCurrentUser()
+
+  if (!user) {
+    redirect('/sign-in')
+  }
+
+  if (user.role !== 'CANDIDATE') {
+    redirect('/role-selection')
+  }
+
+  return <CandidateDashboard />
+}
+\`\`\`
+
+**STEP 3: Replace Job Detail Page (app/candidate/jobs/[id]/page.tsx)**
+\`\`\`typescript
+// REPLACE ENTIRE FILE CONTENT WITH:
+import { notFound, redirect } from 'next/navigation'
+import { getCurrentUser } from '@/lib/auth'
+import { prisma } from '@/lib/prisma'
+import JobDetailClientPage from './job-detail-client-page'
+
+export async function generateMetadata({ params }: { params: { id: string } }) {
+  const job = await prisma.job.findUnique({
+    where: { id: params.id }
+  })
+
+  if (!job) {
+    return {
+      title: "Job Not Found",
+      description: "The requested job could not be found.",
+    }
+  }
+
+  return {
+    title: job.title,
+    description: `View details for the ${job.title} position at ${job.company}.`,
+    keywords: [job.title, job.company, job.location, job.type, "job details", "Talent AI"],
+  }
+}
+
+export default async function JobDetailPage({ params }: { params: { id: string } }) {
+  const user = await getCurrentUser()
+
+  if (!user) {
+    redirect('/sign-in')
+  }
+
+  const job = await prisma.job.findUnique({
+    where: { id: params.id },
+    include: {
+      recruiter: {
+        select: {
+          company: true
+        }
+      }
+    }
+  })
+
+  if (!job) {
+    notFound()
+  }
+
+  return <JobDetailClientPage job={job} />
+}
+\`\`\`
+
+**STEP 4: Replace Apply Page (app/candidate/apply/page.tsx)**
+\`\`\`typescript
+// REPLACE ENTIRE FILE CONTENT WITH:
+import { redirect } from 'next/navigation'
+import { getCurrentUser } from '@/lib/auth'
+import { prisma } from '@/lib/prisma'
+import CandidateApplyClientPage from './CandidateApplyClientPage'
+
+export default async function CandidateApplyPage({
+  searchParams,
+}: {
+  searchParams: { jobId?: string; jobTitle?: string }
+}) {
+  const user = await getCurrentUser()
+
+  if (!user) {
+    redirect('/sign-in')
+  }
+
+  const jobId = searchParams.jobId
+  const jobTitle = searchParams.jobTitle ? decodeURIComponent(searchParams.jobTitle) : undefined
+
+  let job = null
+  if (jobId) {
+    job = await prisma.job.findUnique({
+      where: { id: jobId },
+      include: {
+        recruiter: {
+          select: {
+            company: true
+          }
+        }
+      }
+    })
+  }
+
+  return <CandidateApplyClientPage job={job} initialJobTitle={jobTitle} />
+}
+\`\`\`
+
+**STEP 5: Replace Sign In Page (app/sign-in/SignInClientPage.tsx)**
+\`\`\`typescript
+// REPLACE ENTIRE FILE CONTENT WITH:
+"use client"
+
+import { SignIn } from '@clerk/nextjs'
+
+export default function SignInClientPage() {
+  return (
+    <div className="min-h-screen bg-gray-50/50 p-4 sm:p-8 flex items-center justify-center dark:bg-gray-900">
+      <div className="w-full max-w-md">
+        <SignIn 
+          appearance={{
+            elements: {
+              formButtonPrimary: 'bg-black hover:bg-gray-800 text-sm normal-case',
+              card: 'shadow-lg',
+              headerTitle: 'text-2xl font-bold',
+              headerSubtitle: 'text-gray-600'
+            }
+          }}
+          redirectUrl="/role-selection"
+        />
+      </div>
+    </div>
+  )
+}
+\`\`\`
+
+### 10. THEME TOGGLE FIX - Complete Solution
+
+#### A. Install Correct Dependencies
+\`\`\`bash
+npm uninstall next-themes
+npm install next-themes@^0.2.1
+\`\`\`
+
+#### B. Fix Layout.tsx (app/layout.tsx)
+**REPLACE the ThemeProvider section with this EXACT code:**
+\`\`\`typescript
+<ThemeProvider
+  attribute="class"
+  defaultTheme="system"
+  enableSystem
+  disableTransitionOnChange={false}
+>
+\`\`\`
+
+#### C. Create New Theme Provider (components/theme-provider.tsx)
+**REPLACE ENTIRE FILE:**
+\`\`\`typescript
+"use client"
+
+import * as React from "react"
+import { ThemeProvider as NextThemesProvider } from "next-themes"
+import type { ThemeProviderProps } from "next-themes/dist/types"
+
+export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
+  const [mounted, setMounted] = React.useState(false)
+
+  React.useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  if (!mounted) {
+    return <>{children}</>
+  }
+
+  return <NextThemesProvider {...props}>{children}</NextThemesProvider>
+}
+\`\`\`
+
+#### D. Fix Theme Toggle Component (components/theme-toggle.tsx)
+**REPLACE ENTIRE FILE:**
+\`\`\`typescript
+"use client"
+
+import * as React from "react"
+import { Moon, Sun } from 'lucide-react'
+import { useTheme } from "next-themes"
+
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+
+export function ThemeToggle() {
+  const { setTheme, theme } = useTheme()
+  const [mounted, setMounted] = React.useState(false)
+
+  React.useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  if (!mounted) {
+    return (
+      <Button variant="outline" size="icon" disabled>
+        <Sun className="h-[1.2rem] w-[1.2rem]" />
+        <span className="sr-only">Toggle theme</span>
+      </Button>
+    )
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="icon">
+          <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+          <Moon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+          <span className="sr-only">Toggle theme</span>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={() => setTheme("light")}>
+          Light
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setTheme("dark")}>
+          Dark
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setTheme("system")}>
+          System
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+\`\`\`
+
+#### E. Update Tailwind Config (tailwind.config.ts)
+**ADD this to your tailwind.config.ts:**
+\`\`\`typescript
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  darkMode: ["class"],
+  content: [
+    './pages/**/*.{ts,tsx}',
+    './components/**/*.{ts,tsx}',
+    './app/**/*.{ts,tsx}',
+    './src/**/*.{ts,tsx}',
+  ],
+  theme: {
+    // ... rest of your config
+  },
+  plugins: [require("tailwindcss-animate")],
+}
+\`\`\`
+
+### 11. Complete File Modification Summary
+
+#### Files to COMPLETELY REPLACE (remove all dummy data):
+1. `app/dashboard/page.tsx` - Replace with role-based routing
+2. `app/candidate/dashboard/page.tsx` - Replace with server component
+3. `app/candidate/jobs/[id]/page.tsx` - Replace with database queries
+4. `app/candidate/apply/page.tsx` - Replace with database queries
+5. `app/sign-in/SignInClientPage.tsx` - Replace with Clerk component
+
+#### Files to CREATE (new functionality):
+- `middleware.ts` (root directory)
+- `lib/prisma.ts`
+- `lib/auth.ts`
+- `lib/validations.ts`
+- `lib/hooks.ts`
+- `prisma/schema.prisma`
+- `app/api/webhooks/clerk/route.ts`
+- `app/api/user/route.ts`
+- `app/api/jobs/route.ts`
+- `app/api/jobs/[id]/route.ts`
+- `app/api/applications/route.ts`
+- `app/api/recruiter/profile/route.ts`
+- `app/api/candidate/profile/route.ts`
+- `app/api/dashboard/stats/route.ts`
+- `app/dashboard/recruiter-dashboard.tsx`
+- `app/dashboard/candidate-dashboard.tsx`
+- `app/role-selection/role-selection-client.tsx`
+
+#### Files to MODIFY:
+- `app/layout.tsx` (add ClerkProvider and Toaster)
+- `components/theme-provider.tsx` (fix hydration issues)
+- `components/theme-toggle.tsx` (fix theme switching)
+- `components/main-nav.tsx` (add Clerk authentication)
+- `app/dashboard/page.tsx` (add role-based routing)
+- `app/role-selection/page.tsx` (add server-side logic)
+
+#### Files to DELETE (Remove dummy data):
+- Remove all hardcoded arrays in dashboard components
+- Remove dummy job data from job pages
+- Remove hardcoded user data from profile pages
+
+### 12. Database Commands to Run
+
+\`\`\`bash
+# Install dependencies
+npm install
+
+# Generate Prisma client
+npx prisma generate
+
+# Create and run migration
+npx prisma migrate dev --name initial_setup
+
+# Seed database (optional)
+npx prisma db seed
+
+# View database
+npx prisma studio
+\`\`\`
+
+### 13. Testing Checklist
+
+#### Authentication Flow:
+- [ ] User can sign up with Clerk
+- [ ] User is redirected to role selection
+- [ ] Role selection updates database
+- [ ] User is redirected to appropriate profile setup
+- [ ] Profile creation works correctly
+- [ ] User is redirected to correct dashboard
+
+#### Theme Toggle:
+- [ ] Theme toggle appears in navigation
+- [ ] Light theme works correctly
+- [ ] Dark theme works correctly
+- [ ] System theme detection works
+- [ ] Theme persists across page reloads
+- [ ] No hydration errors in console
+
+#### Dashboard Functionality:
+- [ ] Recruiter dashboard shows correct stats
+- [ ] Candidate dashboard shows correct stats
+- [ ] API endpoints return real data
+- [ ] Tables display actual database records
+- [ ] Loading states work correctly
+- [ ] Error handling works properly
+
+#### Database Operations:
+- [ ] User creation via webhook works
+- [ ] Profile creation works
+- [ ] Job posting works
+- [ ] Application submission works
+- [ ] Data relationships are correct
+- [ ] Indexes improve query performance
