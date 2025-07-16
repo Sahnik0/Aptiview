@@ -6,10 +6,34 @@ import { Separator } from "@/components/ui/separator"
 import { useState } from "react"
 import Link from "next/link"
 import { ThemeToggle } from "./theme-toggle" // Import the ThemeToggle component
-import { SignInButton, SignUpButton, SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
+import { SignInButton, SignUpButton, SignedIn, SignedOut, UserButton, useUser, useAuth } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
 
 export function MainNavigation() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const { user, isLoaded } = useUser();
+  const { getToken } = useAuth();
+  const router = useRouter();
+
+  const handleDashboardRedirect = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!isLoaded || !user) return;
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
+    const token = await getToken();
+    if (!token) return;
+    const res = await fetch(`${backendUrl}/api/users/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return;
+    const dbUser = await res.json();
+    if (dbUser.role === "CANDIDATE") {
+      router.push("/candidate/dashboard");
+    } else if (dbUser.role === "RECRUITER") {
+      router.push("/dashboard");
+    } else {
+      router.push("/role-selection");
+    }
+  };
 
   const navItems = [
     { name: "Features", href: "/#features" },
@@ -57,7 +81,8 @@ export function MainNavigation() {
             ))}
             <SignedIn>
               <motion.a
-                href="/dashboard"
+                href="#"
+                onClick={handleDashboardRedirect}
                 className="text-gray-600 hover:text-gray-900 transition-colors font-medium text-sm dark:text-gray-400 dark:hover:text-gray-50"
                 whileHover={{ y: -1 }}
                 initial={{ opacity: 0, y: -10 }}
@@ -129,7 +154,8 @@ export function MainNavigation() {
             ))}
             <SignedIn>
               <Link
-                href="/dashboard"
+                href="#"
+                onClick={handleDashboardRedirect}
                 className="block text-gray-600 hover:text-gray-900 transition-colors font-medium text-sm dark:text-gray-400 dark:hover:text-gray-50"
                 onClick={() => setMobileMenuOpen(false)}
               >

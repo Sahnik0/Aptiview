@@ -1,3 +1,5 @@
+"use client";
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -5,50 +7,96 @@ import { Briefcase, FileText, Clock, CheckCircle } from "lucide-react"
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
 import type { Metadata } from "next"
-
-export const metadata: Metadata = {
-  title: "Candidate Dashboard",
-  description: "Track your job applications and browse available jobs on Talent AI's candidate dashboard.",
-  keywords: ["candidate dashboard", "job applications", "available jobs", "Talent AI candidate"],
-}
+import { useUser, useAuth } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react"
 
 export default function CandidateDashboardPage() {
-  const myApplications = [
-    {
-      id: "APP001",
-      jobTitle: "Senior Software Engineer",
-      company: "TechCorp",
-      status: "Under Review",
-      date: "2024-07-10",
-    },
-    {
-      id: "APP002",
-      jobTitle: "Product Manager",
-      company: "InnovateLabs",
-      status: "Interview Scheduled",
-      date: "2024-07-05",
-    },
-    {
-      id: "APP003",
-      jobTitle: "UX Designer",
-      company: "Global Retail Co.",
-      status: "Application Received",
-      date: "2024-06-28",
-    },
-  ]
+  const { getToken } = useAuth();
+  const { user, isLoaded } = useUser();
+  const router = useRouter();
+  const [myApplications, setMyApplications] = useState<any[]>([]);
+  const [availableJobs, setAvailableJobs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const availableJobs = [
-    { id: "JOB004", title: "Frontend Developer", company: "WebSolutions", location: "Remote", type: "Full-time" },
-    { id: "JOB005", title: "Data Scientist", company: "DataInsights", location: "New York, NY", type: "Full-time" },
-    {
-      id: "JOB006",
-      title: "Marketing Specialist",
-      company: "BrandBoost",
-      location: "San Francisco, CA",
-      type: "Part-time",
-    },
-    { id: "JOB007", title: "Backend Engineer", company: "CloudNine", location: "Remote", type: "Full-time" },
-  ]
+  useEffect(() => {
+    if (!isLoaded || !user) return;
+    const checkRole = async () => {
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
+      const token = await getToken();
+      if (!token) return;
+      const res = await fetch(`${backendUrl}/api/users/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const dbUser = await res.json();
+      if (dbUser.role !== "CANDIDATE") {
+        if (dbUser.role === "RECRUITER") {
+          router.replace("/dashboard");
+        } else {
+          router.replace("/role-selection");
+        }
+      }
+    };
+    checkRole();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, isLoaded, getToken, router]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const token = await getToken();
+        const [appsRes, jobsRes] = await Promise.all([
+          fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/users/applications`, {
+            headers: { Authorization: `Bearer ${token}` },
+            credentials: "include",
+          }),
+          fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/users/jobs`, {
+            headers: { Authorization: `Bearer ${token}` },
+            credentials: "include",
+          }),
+        ]);
+        if (!appsRes.ok || !jobsRes.ok) throw new Error("Failed to fetch data");
+        const [apps, jobs] = await Promise.all([appsRes.json(), jobsRes.json()]);
+        setMyApplications(apps);
+        setAvailableJobs(jobs);
+      } catch (err: any) {
+        setError(err.message || "Unknown error");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+  }
+  if (error) {
+    return <div className="min-h-screen flex items-center justify-center text-red-500">{error}</div>;
+  }
+
+  // Map backend data to UI fields
+  const mappedApplications = myApplications.map((app) => ({
+    id: app.id,
+    jobTitle: app.job?.title || "",
+    company: app.job?.recruiter?.company || "",
+    status: app.status?.replace(/_/g, " ") || "",
+    date: app.createdAt ? new Date(app.createdAt).toLocaleDateString() : "",
+    location: app.job?.location || "",
+    type: app.job?.type || "",
+  }));
+  const mappedJobs = availableJobs.map((job) => ({
+    id: job.id,
+    title: job.title,
+    company: job.recruiter?.company || "",
+    location: job.location || "",
+    type: job.type || "",
+  }));
 
   return (
     <div className="min-h-screen bg-gray-100 p-4 sm:p-8">
@@ -113,7 +161,7 @@ export default function CandidateDashboardPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {myApplications.map((app) => (
+                    {mappedApplications.map((app) => (
                       <TableRow key={app.id}>
                         <TableCell className="font-medium text-gray-800">{app.jobTitle}</TableCell>
                         <TableCell className="text-gray-700">{app.company}</TableCell>
@@ -163,7 +211,7 @@ export default function CandidateDashboardPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {availableJobs.map((job) => (
+                    {mappedJobs.map((job) => (
                       <TableRow key={job.id}>
                         <TableCell className="font-medium text-gray-800">{job.title}</TableCell>
                         <TableCell className="text-gray-700">{job.company}</TableCell>

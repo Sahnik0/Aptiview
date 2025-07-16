@@ -84,4 +84,66 @@ router.get('/me', requireClerkAuth, async (req: ClerkAuthRequest, res) => {
   }
 });
 
+// Get all applications for the current candidate
+router.get('/applications', requireClerkAuth, async (req: ClerkAuthRequest, res) => {
+  const clerkUserId = req.clerkUserId || '';
+  try {
+    const user = await prisma.user.findUnique({
+      where: { clerkId: clerkUserId },
+      include: { candidateProfile: true },
+    });
+    if (!user || !user.candidateProfile) {
+      return res.status(404).json({ error: 'Candidate profile not found' });
+    }
+    const applications = await prisma.application.findMany({
+      where: { candidateId: user.candidateProfile.id },
+      include: {
+        job: {
+          include: {
+            recruiter: {
+              select: { company: true }
+            }
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    // Add job.location and job.type to each application
+    const appsWithJobDetails = applications.map(app => ({
+      ...app,
+      job: app.job ? {
+        ...app.job,
+        location: app.job.location,
+        type: app.job.type,
+      } : null
+    }));
+    res.json(appsWithJobDetails);
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// Get all available jobs
+router.get('/jobs', requireClerkAuth, async (req: ClerkAuthRequest, res) => {
+  try {
+    const jobs = await prisma.job.findMany({
+      include: {
+        recruiter: {
+          select: { company: true }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    // Add location and type fields to each job
+    const jobsWithDetails = jobs.map(job => ({
+      ...job,
+      location: job.location,
+      type: job.type,
+    }));
+    res.json(jobsWithDetails);
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 export default router; 

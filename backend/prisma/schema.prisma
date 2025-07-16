@@ -50,6 +50,8 @@ model Job {
   recruiterId  String
   applications Application[]
   createdAt    DateTime @default(now())
+  location     String
+  type         String
 }
 
 model Application {
