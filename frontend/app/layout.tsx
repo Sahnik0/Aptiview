@@ -1,9 +1,18 @@
 import type React from "react"
 import type { Metadata } from "next"
+import {
+  ClerkProvider,
+  SignInButton,
+  SignUpButton,
+  SignedIn,
+  SignedOut,
+  UserButton,
+} from "@clerk/nextjs";
 import "./globals.css"
 import { Inter } from "next/font/google"
 import { ThemeProvider } from "@/components/theme-provider"
 import { MainNavigation } from "@/components/main-nav"
+import AuthHeaderButtons from "@/components/AuthHeaderButtons";
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -59,19 +68,21 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="light"
-          enableSystem
-          disableTransitionOnChange={false}
-          storageKey="talent-ai-theme"
-        >
-          <MainNavigation />
-          <div className="pt-16 bg-gray-50/50 dark:bg-gray-900 min-h-[calc(100vh-4rem)]">{children}</div>
-        </ThemeProvider>
-      </body>
-    </html>
+    <ClerkProvider>
+      <html lang="en" suppressHydrationWarning>
+        <body className={inter.className}>
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="light"
+            enableSystem
+            disableTransitionOnChange={false}
+            storageKey="talent-ai-theme"
+          >
+            <MainNavigation />
+            <div className="pt-16 bg-gray-50/50 dark:bg-gray-900 min-h-[calc(100vh-4rem)]">{children}</div>
+          </ThemeProvider>
+        </body>
+      </html>
+    </ClerkProvider>
   )
 }

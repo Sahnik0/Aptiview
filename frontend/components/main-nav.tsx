@@ -6,6 +6,7 @@ import { Separator } from "@/components/ui/separator"
 import { useState } from "react"
 import Link from "next/link"
 import { ThemeToggle } from "./theme-toggle" // Import the ThemeToggle component
+import { SignInButton, SignUpButton, SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 
 export function MainNavigation() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -54,22 +55,29 @@ export function MainNavigation() {
                 {item.name}
               </motion.a>
             ))}
-            <Button
-              variant="outline"
-              size="sm"
-              className="font-medium bg-transparent border-gray-300 hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800 dark:text-gray-100"
-              asChild
-            >
-              <Link href="/sign-in">Sign In</Link>
-            </Button>
-            <Button
-              size="sm"
-              className="bg-black hover:bg-gray-800 font-medium dark:bg-gray-100 dark:text-black dark:hover:bg-gray-200"
-              asChild
-            >
-              <Link href="/sign-in">Get Started</Link>
-            </Button>
-            <ThemeToggle /> {/* Add the ThemeToggle here */}
+            <SignedOut>
+              <SignInButton mode="modal">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="font-medium bg-transparent border-gray-300 hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800 dark:text-gray-100"
+                >
+                  Sign In
+                </Button>
+              </SignInButton>
+              <SignUpButton mode="modal">
+                <Button
+                  size="sm"
+                  className="bg-black hover:bg-gray-800 font-medium dark:bg-gray-100 dark:text-black dark:hover:bg-gray-200 ml-2"
+                >
+                  Get Started
+                </Button>
+              </SignUpButton>
+            </SignedOut>
+            <SignedIn>
+              <UserButton afterSignOutUrl="/" />
+            </SignedIn>
+            <ThemeToggle />
           </div>
 
           <div className="flex items-center lg:hidden">
@@ -109,21 +117,28 @@ export function MainNavigation() {
             ))}
             <Separator className="my-3 bg-gray-200 dark:bg-gray-700" />
             <div className="flex flex-col space-y-2">
-              <Button
-                variant="outline"
-                size="sm"
-                asChild
-                className="bg-transparent border-gray-300 hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800 dark:text-gray-100"
-              >
-                <Link href="/sign-in">Sign In</Link>
-              </Button>
-              <Button
-                size="sm"
-                className="bg-black hover:bg-gray-800 dark:bg-gray-100 dark:text-black dark:hover:bg-gray-200"
-                asChild
-              >
-                <Link href="/sign-in">Get Started</Link>
-              </Button>
+              <SignedOut>
+                <SignInButton mode="modal">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="bg-transparent border-gray-300 hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800 dark:text-gray-100"
+                  >
+                    Sign In
+                  </Button>
+                </SignInButton>
+                <SignUpButton mode="modal">
+                  <Button
+                    size="sm"
+                    className="bg-black hover:bg-gray-800 dark:bg-gray-100 dark:text-black dark:hover:bg-gray-200"
+                  >
+                    Get Started
+                  </Button>
+                </SignUpButton>
+              </SignedOut>
+              <SignedIn>
+                <UserButton afterSignOutUrl="/" />
+              </SignedIn>
             </div>
           </div>
         </motion.div>

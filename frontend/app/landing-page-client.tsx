@@ -33,6 +33,7 @@ import { useState, forwardRef, useEffect, useRef } from "react"
 import { AnimatedBeam } from "@/components/magicui/animated-beam"
 import { cn } from "@/lib/utils"
 import Link from "next/link" // Import Link
+import { SignInButton } from "@clerk/nextjs";
 
 const companies = ["Google", "Microsoft", "Amazon", "Meta", "Apple", "Netflix", "Spotify", "Uber", "Airbnb", "Tesla"]
 
@@ -475,18 +476,15 @@ export default function LandingPageClient() {
                 animate={isHeroInView ? { opacity: 1, y: 0 } : {}}
                 transition={{ delay: 0.5, duration: 0.6 }}
               >
-                <Button
-                  size="lg"
-                  className="bg-black hover:bg-gray-800 font-semibold text-lg px-8 py-6 shadow-lg dark:bg-gray-100 dark:text-black dark:hover:bg-gray-200"
-                  asChild // Added asChild here
-                >
-                  <Link href="/sign-in">
-                    {" "}
-                    {/* Ensure Link is used */}
+                <SignInButton mode="modal">
+                  <Button
+                    size="lg"
+                    className="bg-black hover:bg-gray-800 font-semibold text-lg px-8 py-6 shadow-lg dark:bg-gray-100 dark:text-black dark:hover:bg-gray-200"
+                  >
                     Start Free Trial
                     <ArrowRight className="ml-2 w-5 h-5" />
-                  </Link>
-                </Button>
+                  </Button>
+                </SignInButton>
                 <Button
                   size="lg"
                   variant="outline"
@@ -871,18 +869,15 @@ export default function LandingPageClient() {
             </p>
 
             <div className="flex flex-col sm:flex-row gap-6 justify-center items-center mb-12">
-              <Button
-                size="lg"
-                className="bg-white text-black hover:bg-gray-100 font-semibold text-lg px-10 py-6 shadow-xl dark:bg-gray-100 dark:text-black dark:hover:bg-gray-200"
-                asChild // Added asChild here
-              >
-                <Link href="/sign-in">
-                  {" "}
-                  {/* Ensure Link is used */}
+              <SignInButton mode="modal">
+                <Button
+                  size="lg"
+                  className="bg-white text-black hover:bg-gray-100 font-semibold text-lg px-10 py-6 shadow-xl dark:bg-gray-100 dark:text-black dark:hover:bg-gray-200"
+                >
                   Start Free Trial
                   <ArrowRight className="ml-2 w-5 h-5" />
-                </Link>
-              </Button>
+                </Button>
+              </SignInButton>
               <Button
                 size="lg"
                 variant="outline"
