@@ -13,32 +13,78 @@ import { CheckCircle, Video } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import ReactMarkdown from "react-markdown" // Import ReactMarkdown
 import remarkGfm from "remark-gfm" // Import remarkGfm for GitHub Flavored Markdown
+import { useAuth } from "@clerk/nextjs"
 
 interface CandidateApplyClientPageProps {
-  job?: {
-    id: string
-    title: string
-    company: string
-    location: string
-    type: string
-    description: string
-  }
+  jobId?: string
   initialJobTitle?: string
 }
 
-export default function CandidateApplyClientPage({ job, initialJobTitle }: CandidateApplyClientPageProps) {
+interface Job {
+  id: string
+  title: string
+  company: string
+  location: string
+  type: string
+  description: string
+  createdAt: string
+  updatedAt: string
+  recruiterId: string
+}
+
+export default function CandidateApplyClientPage({ jobId, initialJobTitle }: CandidateApplyClientPageProps) {
+  const [job, setJob] = useState<Job | null>(null)
   const [isSubmitted, setIsSubmitted] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [jobLoading, setJobLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     fullName: "",
     email: "",
     phone: "",
     linkedin: "",
     portfolio: "",
-    jobRole: initialJobTitle || job?.title || "",
+    jobRole: initialJobTitle || "",
     cvFile: null as File | null,
     coverLetter: "",
   })
   const router = useRouter()
+  const { getToken } = useAuth()
+
+  // Fetch job data when jobId is available
+  useEffect(() => {
+    async function fetchJob() {
+      if (!jobId) return
+      
+      setJobLoading(true)
+      try {
+        const token = await getToken()
+        if (!token) throw new Error("Not authenticated")
+        
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000"
+        const res = await fetch(`${backendUrl}/api/users/jobs/${jobId}`, {
+          headers: {
+            "Authorization": `Bearer ${token}`,
+          },
+        })
+        
+        if (!res.ok) {
+          throw new Error("Failed to fetch job details")
+        }
+        
+        const jobData = await res.json()
+        setJob(jobData)
+        setFormData(prev => ({ ...prev, jobRole: jobData.title }))
+      } catch (err: any) {
+        setError(err.message || "Failed to load job details")
+        console.error("Job fetch error:", err)
+      } finally {
+        setJobLoading(false)
+      }
+    }
+    
+    fetchJob()
+  }, [jobId, getToken])
 
   useEffect(() => {
     if (job) {
@@ -55,22 +101,90 @@ export default function CandidateApplyClientPage({ job, initialJobTitle }: Candi
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setFormData((prev) => ({ ...prev, cvFile: e.target.files[0] }))
+      setFormData((prev) => ({ ...prev, cvFile: e.target.files![0] }))
     }
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    // In a real app, you'd send data to a backend here
-    console.log("Application Submitted:", { ...formData, jobId: job?.id })
-    setIsSubmitted(true)
-    // Simulate a delay for submission
-    setTimeout(() => {
-      router.push("/candidate/dashboard") // Redirect to candidate dashboard
-    }, 2000)
+    
+    if (!job) {
+      setError("Job information not found");
+      return;
+    }
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not authenticated");
+      
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
+      const res = await fetch(`${backendUrl}/api/users/jobs/${job.id}/apply`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+      });
+      
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || "Failed to submit application");
+      }
+      
+      setIsSubmitted(true);
+      setTimeout(() => {
+        router.push("/candidate/dashboard");
+      }, 2000);
+    } catch (err: any) {
+      setError(err.message || "Unknown error");
+      console.error("Application submission error:", err);
+    } finally {
+      setLoading(false);
+    }
   }
 
   const displayJobTitle = formData.jobRole || "a Job"
+
+  // Show loading state while fetching job
+  if (jobLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50/50 p-4 sm:p-8 flex items-center justify-center dark:bg-gray-900">
+        <Card className="w-full max-w-md text-center shadow-lg bg-white dark:bg-gray-800 dark:border-gray-700">
+          <CardHeader>
+            <CardTitle className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+              Loading Job Details...
+            </CardTitle>
+          </CardHeader>
+        </Card>
+      </div>
+    )
+  }
+
+  // Show error state if job fetch failed
+  if (error && !job) {
+    return (
+      <div className="min-h-screen bg-gray-50/50 p-4 sm:p-8 flex items-center justify-center dark:bg-gray-900">
+        <Card className="w-full max-w-md text-center shadow-lg bg-white dark:bg-gray-800 dark:border-gray-700">
+          <CardHeader>
+            <CardTitle className="text-2xl font-bold text-red-600 dark:text-red-400">
+              Error Loading Job
+            </CardTitle>
+            <CardDescription className="text-gray-600 dark:text-gray-400">
+              {error}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button onClick={() => router.back()} className="w-full">
+              Go Back
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   if (isSubmitted) {
     return (
@@ -116,12 +230,11 @@ export default function CandidateApplyClientPage({ job, initialJobTitle }: Candi
             <h3 className="text-xl font-bold text-gray-900 mb-4 dark:text-gray-100">Job Description</h3>
             {job ? (
               <ScrollArea className="h-[600px] pr-4">
-                <ReactMarkdown
-                  className="prose max-w-none text-gray-700 leading-relaxed dark:text-gray-300 dark:prose-invert"
-                  remarkPlugins={[remarkGfm]}
-                >
-                  {job.description}
-                </ReactMarkdown>
+                <div className="prose max-w-none text-gray-700 leading-relaxed dark:text-gray-300 dark:prose-invert">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {job.description}
+                  </ReactMarkdown>
+                </div>
               </ScrollArea>
             ) : (
               <div className="h-[600px] flex items-center justify-center text-gray-500 bg-gray-50 rounded-lg border border-dashed border-gray-200 p-4 text-center dark:bg-gray-700 dark:border-gray-600 dark:text-gray-400">
@@ -252,10 +365,19 @@ export default function CandidateApplyClientPage({ job, initialJobTitle }: Candi
               </div>
               <Button
                 type="submit"
-                className="w-full bg-black hover:bg-gray-800 text-lg py-6 dark:bg-gray-100 dark:text-black dark:hover:bg-gray-200"
+                disabled={loading || !job}
+                className="w-full bg-black hover:bg-gray-800 text-lg py-6 dark:bg-gray-100 dark:text-black dark:hover:bg-gray-200 disabled:opacity-50"
               >
-                Submit Application
+                {loading ? "Submitting..." : "Submit Application"}
               </Button>
+              {error && (
+                <p className="text-red-600 text-sm text-center dark:text-red-400">{error}</p>
+              )}
+              {!job && jobId && (
+                <p className="text-yellow-600 text-sm text-center dark:text-yellow-400">
+                  Job information is still loading...
+                </p>
+              )}
             </form>
           </div>
         </CardContent>

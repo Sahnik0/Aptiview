@@ -110,8 +110,8 @@ export default function CandidateDashboardPage() {
               <FileText className="h-5 w-5 text-gray-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-3xl sm:text-4xl font-bold text-gray-900">3</div>
-              <p className="text-xs text-gray-500">+1 new this week</p>
+              <div className="text-3xl sm:text-4xl font-bold text-gray-900">{myApplications.length}</div>
+              <p className="text-xs text-gray-500">Applications submitted</p>
             </CardContent>
           </Card>
           <Card className="hover:shadow-lg transition-shadow duration-300">
@@ -120,18 +120,20 @@ export default function CandidateDashboardPage() {
               <Clock className="h-5 w-5 text-gray-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-3xl sm:text-4xl font-bold text-gray-900">1</div>
-              <p className="text-xs text-gray-500">Next interview: July 20</p>
+              <div className="text-3xl sm:text-4xl font-bold text-gray-900">
+                {mappedApplications.filter(app => app.status.includes("INTERVIEW")).length}
+              </div>
+              <p className="text-xs text-gray-500">Upcoming interviews</p>
             </CardContent>
           </Card>
           <Card className="hover:shadow-lg transition-shadow duration-300">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Profile Completion</CardTitle>
+              <CardTitle className="text-sm font-medium text-gray-600">Available Jobs</CardTitle>
               <CheckCircle className="h-5 w-5 text-gray-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-3xl sm:text-4xl font-bold text-gray-900">85%</div>
-              <p className="text-xs text-gray-500">Complete your profile for better matches</p>
+              <div className="text-3xl sm:text-4xl font-bold text-gray-900">{availableJobs.length}</div>
+              <p className="text-xs text-gray-500">Open positions</p>
             </CardContent>
           </Card>
         </div>
