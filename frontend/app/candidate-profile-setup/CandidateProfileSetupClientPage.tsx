@@ -9,22 +9,55 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { CheckCircle } from "lucide-react"
+import { useAuth, useUser } from "@clerk/nextjs"
 
 export default function CandidateProfileSetupClientPage() {
   const [education, setEducation] = useState("")
   const [workExperience, setWorkExperience] = useState("")
   const [skills, setSkills] = useState("")
   const [isSubmitted, setIsSubmitted] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const router = useRouter()
+  const { getToken } = useAuth()
+  const { user } = useUser()
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    // In a real application, you would send this data to your backend
-    console.log("Candidate Profile Submitted:", { education, workExperience, skills })
-    setIsSubmitted(true)
-    setTimeout(() => {
-      router.push("/candidate/dashboard") // Redirect to candidate dashboard
-    }, 2000) // Simulate a delay for submission
+    setError(null)
+    try {
+      const token = await getToken()
+      if (!token || !user) throw new Error("Not authenticated")
+      const email = user.primaryEmailAddress?.emailAddress || user.emailAddresses[0]?.emailAddress
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000"
+      const res = await fetch(`${backendUrl}/api/users/provision`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          email,
+          role: "CANDIDATE",
+          profile: {
+            education,
+            experience: workExperience,
+            skills,
+          },
+        }),
+      })
+      if (!res.ok) {
+        const errText = await res.text()
+        throw new Error(`Failed to save profile: ${errText}`)
+      }
+      setIsSubmitted(true)
+      setTimeout(() => {
+        router.push("/candidate/dashboard")
+      }, 2000)
+    } catch (err: any) {
+      setError(err.message || "Unknown error")
+      // Log error for debugging
+      console.error("Profile save error:", err)
+    }
   }
 
   if (isSubmitted) {
@@ -44,54 +77,26 @@ export default function CandidateProfileSetupClientPage() {
   return (
     <div className="min-h-screen bg-gray-50/50 p-4 sm:p-8 flex items-center justify-center">
       <Card className="w-full max-w-md shadow-lg">
-        <CardHeader className="text-center">
+        <CardHeader>
           <CardTitle className="text-3xl font-bold text-gray-900">Candidate Profile Setup</CardTitle>
-          <CardDescription className="text-gray-600">
-            Build your profile to showcase your qualifications.
-          </CardDescription>
+          <CardDescription className="text-gray-600">Tell us about your background to get started.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
+            {error && <div className="text-red-500 text-sm mb-2">{error}</div>}
             <div>
-              <Label htmlFor="education" className="text-gray-700">
-                Education (e.g., University, Degree, Year)
-              </Label>
-              <Input
-                id="education"
-                value={education}
-                onChange={(e) => setEducation(e.target.value)}
-                placeholder="B.S. Computer Science, 2022"
-                className="border-gray-300 focus-visible:ring-gray-400"
-              />
+              <Label htmlFor="education" className="text-gray-700">Education</Label>
+              <Input id="education" value={education} onChange={e => setEducation(e.target.value)} required placeholder="B.Sc. in Computer Science" className="border-gray-300 focus-visible:ring-gray-400" />
             </div>
             <div>
-              <Label htmlFor="workExperience" className="text-gray-700">
-                Work Experience (Summarize key roles and companies)
-              </Label>
-              <Textarea
-                id="workExperience"
-                value={workExperience}
-                onChange={(e) => setWorkExperience(e.target.value)}
-                rows={4}
-                placeholder="Software Engineer at TechCorp (2022-Present), developed scalable APIs..."
-                className="border-gray-300 focus-visible:ring-gray-400"
-              />
+              <Label htmlFor="workExperience" className="text-gray-700">Work Experience</Label>
+              <Textarea id="workExperience" value={workExperience} onChange={e => setWorkExperience(e.target.value)} required placeholder="2 years at Google, 1 year at Meta" className="border-gray-300 focus-visible:ring-gray-400" />
             </div>
             <div>
-              <Label htmlFor="skills" className="text-gray-700">
-                Skills (Comma-separated, e.g., JavaScript, React, Node.js)
-              </Label>
-              <Input
-                id="skills"
-                value={skills}
-                onChange={(e) => setSkills(e.target.value)}
-                placeholder="JavaScript, React, Node.js, AWS"
-                className="border-gray-300 focus-visible:ring-gray-400"
-              />
+              <Label htmlFor="skills" className="text-gray-700">Skills (Comma-separated, e.g., JavaScript, React, Node.js)</Label>
+              <Input id="skills" value={skills} onChange={e => setSkills(e.target.value)} placeholder="JavaScript, React, Node.js, AWS" className="border-gray-300 focus-visible:ring-gray-400" />
             </div>
-            <Button type="submit" className="w-full bg-black hover:bg-gray-800 text-lg py-6">
-              Save Profile & Go to Dashboard
-            </Button>
+            <Button type="submit" className="w-full bg-black hover:bg-gray-800 text-lg py-6">Save Profile & Go to Dashboard</Button>
           </form>
         </CardContent>
       </Card>

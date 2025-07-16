@@ -1,17 +1,43 @@
+"use client";
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Plus, BarChart3, Users, Briefcase, Clock } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import type { Metadata } from "next"
-
-export const metadata: Metadata = {
-  title: "Recruiter Dashboard",
-  description: "Manage your job postings, applicants, and interviews with the Talent AI recruiter dashboard.",
-  keywords: ["recruiter dashboard", "job postings", "applicant tracking", "interview management"],
-}
+import { useUser, useAuth } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 export default function DashboardPage() {
+  const { user, isLoaded } = useUser();
+  const { getToken } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!isLoaded || !user) return;
+    const checkRole = async () => {
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
+      const token = await getToken();
+      if (!token) return;
+      const res = await fetch(`${backendUrl}/api/users/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const dbUser = await res.json();
+      if (dbUser.role !== "RECRUITER") {
+        if (dbUser.role === "CANDIDATE") {
+          router.replace("/candidate/dashboard");
+        } else {
+          router.replace("/role-selection");
+        }
+      }
+    };
+    checkRole();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, isLoaded, getToken, router]);
+
   const jobPostings = [
     { id: "JP001", title: "Senior Software Engineer", applicants: 120, interviews: 85, status: "Active" },
     { id: "JP002", title: "Product Manager", applicants: 75, interviews: 50, status: "Active" },

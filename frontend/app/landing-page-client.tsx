@@ -33,6 +33,8 @@ import { useState, forwardRef, useEffect, useRef } from "react"
 import { AnimatedBeam } from "@/components/magicui/animated-beam"
 import { cn } from "@/lib/utils"
 import Link from "next/link" // Import Link
+import { SignInButton, SignedIn, SignedOut, useUser, useAuth } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
 
 const companies = ["Google", "Microsoft", "Amazon", "Meta", "Apple", "Netflix", "Spotify", "Uber", "Airbnb", "Tesla"]
 
@@ -410,6 +412,9 @@ export default function LandingPageClient() {
   const y = useTransform(scrollYProgress, [0, 1], [0, -50])
   const heroRef = useRef(null)
   const isHeroInView = useInView(heroRef, { once: true })
+  const { user, isLoaded } = useUser();
+  const { getToken } = useAuth();
+  const router = useRouter();
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -417,6 +422,25 @@ export default function LandingPageClient() {
     }, 6000)
     return () => clearInterval(interval)
   }, [])
+
+  const handleDashboardRedirect = async () => {
+    if (!isLoaded || !user) return;
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
+    const token = await getToken();
+    if (!token) return;
+    const res = await fetch(`${backendUrl}/api/users/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return;
+    const dbUser = await res.json();
+    if (dbUser.role === "CANDIDATE") {
+      router.push("/candidate/dashboard");
+    } else if (dbUser.role === "RECRUITER") {
+      router.push("/dashboard");
+    } else {
+      router.push("/role-selection");
+    }
+  };
 
   return (
     <div className="min-h-screen bg-white dark:bg-gray-950">
@@ -475,18 +499,20 @@ export default function LandingPageClient() {
                 animate={isHeroInView ? { opacity: 1, y: 0 } : {}}
                 transition={{ delay: 0.5, duration: 0.6 }}
               >
-                <Button
-                  size="lg"
-                  className="bg-black hover:bg-gray-800 font-semibold text-lg px-8 py-6 shadow-lg dark:bg-gray-100 dark:text-black dark:hover:bg-gray-200"
-                  asChild // Added asChild here
-                >
-                  <Link href="/sign-in">
-                    {" "}
-                    {/* Ensure Link is used */}
-                    Start Free Trial
-                    <ArrowRight className="ml-2 w-5 h-5" />
-                  </Link>
-                </Button>
+                <SignedOut>
+                  <SignInButton mode="modal">
+                    <Button
+                      size="lg"
+                      className="bg-black hover:bg-gray-800 font-semibold text-lg px-8 py-6 shadow-lg dark:bg-gray-100 dark:text-black dark:hover:bg-gray-200"
+                    >
+                      Start Free Trial
+                      <ArrowRight className="ml-2 w-5 h-5" />
+                    </Button>
+                  </SignInButton>
+                </SignedOut>
+                <SignedIn>
+                  <Button onClick={handleDashboardRedirect}>Go to Dashboard</Button>
+                </SignedIn>
                 <Button
                   size="lg"
                   variant="outline"
@@ -871,18 +897,20 @@ export default function LandingPageClient() {
             </p>
 
             <div className="flex flex-col sm:flex-row gap-6 justify-center items-center mb-12">
-              <Button
-                size="lg"
-                className="bg-white text-black hover:bg-gray-100 font-semibold text-lg px-10 py-6 shadow-xl dark:bg-gray-100 dark:text-black dark:hover:bg-gray-200"
-                asChild // Added asChild here
-              >
-                <Link href="/sign-in">
-                  {" "}
-                  {/* Ensure Link is used */}
-                  Start Free Trial
-                  <ArrowRight className="ml-2 w-5 h-5" />
-                </Link>
-              </Button>
+              <SignedIn>
+                <Button onClick={handleDashboardRedirect}>Go to Dashboard</Button>
+              </SignedIn>
+              <SignedOut>
+                <SignInButton mode="modal">
+                  <Button
+                    size="lg"
+                    className="bg-white text-black hover:bg-gray-100 font-semibold text-lg px-10 py-6 shadow-xl dark:bg-gray-100 dark:text-black dark:hover:bg-gray-200"
+                  >
+                    Start Free Trial
+                    <ArrowRight className="ml-2 w-5 h-5" />
+                  </Button>
+                </SignInButton>
+              </SignedOut>
               <Button
                 size="lg"
                 variant="outline"
