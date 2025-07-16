@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { CheckCircle } from "lucide-react"
+import { useAuth, useUser } from "@clerk/nextjs"
 
 export default function RecruiterProfileSetupClientPage() {
   const [companyName, setCompanyName] = useState("")
@@ -16,16 +17,49 @@ export default function RecruiterProfileSetupClientPage() {
   const [companySize, setCompanySize] = useState("")
   const [contactNumber, setContactNumber] = useState("")
   const [isSubmitted, setIsSubmitted] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const router = useRouter()
+  const { getToken } = useAuth()
+  const { user } = useUser()
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    // In a real application, you would send this data to your backend
-    console.log("Recruiter Profile Submitted:", { companyName, industry, companySize, contactNumber })
-    setIsSubmitted(true)
-    setTimeout(() => {
-      router.push("/dashboard") // Redirect to recruiter dashboard
-    }, 2000) // Simulate a delay for submission
+    setError(null)
+    try {
+      const token = await getToken()
+      if (!token || !user) throw new Error("Not authenticated")
+      const email = user.primaryEmailAddress?.emailAddress || user.emailAddresses[0]?.emailAddress
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000"
+      const res = await fetch(`${backendUrl}/api/users/provision`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          email,
+          role: "RECRUITER",
+          profile: {
+            company: companyName,
+            industry,
+            companySize,
+            contactNumber,
+          },
+        }),
+      })
+      if (!res.ok) {
+        const errText = await res.text()
+        throw new Error(`Failed to save profile: ${errText}`)
+      }
+      setIsSubmitted(true)
+      setTimeout(() => {
+        router.push("/dashboard")
+      }, 2000)
+    } catch (err: any) {
+      setError(err.message || "Unknown error")
+      // Log error for debugging
+      console.error("Profile save error:", err)
+    }
   }
 
   if (isSubmitted) {
@@ -45,47 +79,23 @@ export default function RecruiterProfileSetupClientPage() {
   return (
     <div className="min-h-screen bg-gray-50/50 p-4 sm:p-8 flex items-center justify-center">
       <Card className="w-full max-w-md shadow-lg">
-        <CardHeader className="text-center">
+        <CardHeader>
           <CardTitle className="text-3xl font-bold text-gray-900">Recruiter Profile Setup</CardTitle>
-          <CardDescription className="text-gray-600">Tell us about your company to get started.</CardDescription>
+          <CardDescription className="text-gray-600">Set up your company profile to start posting jobs.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
+            {error && <div className="text-red-500 text-sm mb-2">{error}</div>}
             <div>
-              <Label htmlFor="companyName" className="text-gray-700">
-                Company Name
-              </Label>
-              <Input
-                id="companyName"
-                value={companyName}
-                onChange={(e) => setCompanyName(e.target.value)}
-                required
-                placeholder="Acme Corp."
-                className="border-gray-300 focus-visible:ring-gray-400"
-              />
+              <Label htmlFor="companyName" className="text-gray-700">Company Name</Label>
+              <Input id="companyName" value={companyName} onChange={e => setCompanyName(e.target.value)} required placeholder="Acme Corp" className="border-gray-300 focus-visible:ring-gray-400" />
             </div>
             <div>
-              <Label htmlFor="industry" className="text-gray-700">
-                Industry
-              </Label>
-              <Select value={industry} onValueChange={setIndustry} required>
-                <SelectTrigger id="industry" className="border-gray-300 focus-visible:ring-gray-400">
-                  <SelectValue placeholder="Select industry" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="technology">Technology</SelectItem>
-                  <SelectItem value="finance">Finance</SelectItem>
-                  <SelectItem value="healthcare">Healthcare</SelectItem>
-                  <SelectItem value="retail">Retail</SelectItem>
-                  <SelectItem value="manufacturing">Manufacturing</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label htmlFor="industry" className="text-gray-700">Industry</Label>
+              <Input id="industry" value={industry} onChange={e => setIndustry(e.target.value)} required placeholder="Software, Finance, Healthcare" className="border-gray-300 focus-visible:ring-gray-400" />
             </div>
             <div>
-              <Label htmlFor="companySize" className="text-gray-700">
-                Company Size
-              </Label>
+              <Label htmlFor="companySize" className="text-gray-700">Company Size</Label>
               <Select value={companySize} onValueChange={setCompanySize} required>
                 <SelectTrigger id="companySize" className="border-gray-300 focus-visible:ring-gray-400">
                   <SelectValue placeholder="Select company size" />
@@ -100,21 +110,10 @@ export default function RecruiterProfileSetupClientPage() {
               </Select>
             </div>
             <div>
-              <Label htmlFor="contactNumber" className="text-gray-700">
-                Contact Number (Optional)
-              </Label>
-              <Input
-                id="contactNumber"
-                type="tel"
-                value={contactNumber}
-                onChange={(e) => setContactNumber(e.target.value)}
-                placeholder="+1 (555) 123-4567"
-                className="border-gray-300 focus-visible:ring-gray-400"
-              />
+              <Label htmlFor="contactNumber" className="text-gray-700">Contact Number (Optional)</Label>
+              <Input id="contactNumber" type="tel" value={contactNumber} onChange={e => setContactNumber(e.target.value)} placeholder="+1 (555) 123-4567" className="border-gray-300 focus-visible:ring-gray-400" />
             </div>
-            <Button type="submit" className="w-full bg-black hover:bg-gray-800 text-lg py-6">
-              Save Profile & Go to Dashboard
-            </Button>
+            <Button type="submit" className="w-full bg-black hover:bg-gray-800 text-lg py-6">Save Profile & Go to Dashboard</Button>
           </form>
         </CardContent>
       </Card>
