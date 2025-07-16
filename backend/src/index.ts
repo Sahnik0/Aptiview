@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { prisma } from './db';
 import apiRoutes from './routes';
+import { clerkMiddleware } from '@clerk/express';
 
 const app = express();
 app.use(cors({
@@ -9,6 +10,7 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json());
+app.use(clerkMiddleware());
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });

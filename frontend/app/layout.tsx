@@ -2,17 +2,15 @@ import type React from "react"
 import type { Metadata } from "next"
 import {
   ClerkProvider,
-  SignInButton,
-  SignUpButton,
   SignedIn,
-  SignedOut,
-  UserButton,
 } from "@clerk/nextjs";
 import "./globals.css"
 import { Inter } from "next/font/google"
 import { ThemeProvider } from "@/components/theme-provider"
 import { MainNavigation } from "@/components/main-nav"
 import AuthHeaderButtons from "@/components/AuthHeaderButtons";
+import { GlobalUserProvisioner } from "@/components/GlobalUserProvisioner";
+import { RoleRedirector } from "@/components/RoleRedirector";
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -69,6 +67,10 @@ export default function RootLayout({
 }>) {
   return (
     <ClerkProvider>
+      <SignedIn>
+        <GlobalUserProvisioner />
+        <RoleRedirector />
+      </SignedIn>
       <html lang="en" suppressHydrationWarning>
         <body className={inter.className}>
           <ThemeProvider
