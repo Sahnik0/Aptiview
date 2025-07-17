@@ -4,67 +4,6 @@ import { prisma } from '../db';
 
 const router = Router();
 
-// Get current user (alias for profile)
-router.get('/me', requireClerkAuth, async (req: ClerkAuthRequest, res: Response) => {
-  try {
-    const userId = req.clerkUserId;
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-      include: {
-        recruiterProfile: true,
-        candidateProfile: true
-      }
-    });
-
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    res.json(user);
-  } catch (error) {
-    console.error('Error fetching current user:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// Provision user (create if doesn't exist)
-router.post('/provision', requireClerkAuth, async (req: ClerkAuthRequest, res: Response) => {
-  try {
-    const userId = req.clerkUserId;
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const { email, role } = req.body;
-
-    const user = await prisma.user.upsert({
-      where: { clerkId: userId },
-      update: {
-        email: email || undefined,
-        role: role || undefined
-      },
-      create: {
-        clerkId: userId,
-        email: email || '',
-        role: role || null
-      },
-      include: {
-        recruiterProfile: true,
-        candidateProfile: true
-      }
-    });
-
-    res.json(user);
-  } catch (error) {
-    console.error('Error provisioning user:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
 // Get user profile
 router.get('/profile', requireClerkAuth, async (req: ClerkAuthRequest, res: Response) => {
   try {
@@ -169,7 +108,7 @@ router.post('/jobs', requireClerkAuth, async (req: ClerkAuthRequest, res: Respon
   }
 });
 
-// Get all jobs (public endpoint for browsing)
+// Get all jobs
 router.get('/jobs', async (req: ClerkAuthRequest, res: Response) => {
   try {
     const jobs = await prisma.job.findMany({
@@ -201,93 +140,6 @@ router.get('/jobs', async (req: ClerkAuthRequest, res: Response) => {
   }
 });
 
-// Get recruiter's jobs
-router.get('/my-jobs', requireClerkAuth, async (req: ClerkAuthRequest, res: Response) => {
-  try {
-    const userId = req.clerkUserId;
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-      include: { recruiterProfile: true }
-    });
-
-    if (!user || user.role !== 'RECRUITER' || !user.recruiterProfile) {
-      return res.status(403).json({ error: 'Access denied. Recruiter profile required.' });
-    }
-
-    const jobs = await prisma.job.findMany({
-      where: {
-        recruiterId: user.recruiterProfile.id
-      },
-      include: {
-        _count: {
-          select: {
-            applications: true
-          }
-        }
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
-    });
-
-    res.json(jobs);
-  } catch (error) {
-    console.error('Error fetching recruiter jobs:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// Get recruiter stats
-router.get('/recruiter-stats', requireClerkAuth, async (req: ClerkAuthRequest, res: Response) => {
-  try {
-    const userId = req.clerkUserId;
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-      include: { recruiterProfile: true }
-    });
-
-    if (!user || user.role !== 'RECRUITER' || !user.recruiterProfile) {
-      return res.status(403).json({ error: 'Access denied. Recruiter profile required.' });
-    }
-
-    const [totalJobs, totalApplications, activeInterviews] = await Promise.all([
-      prisma.job.count({
-        where: { recruiterId: user.recruiterProfile.id }
-      }),
-      prisma.application.count({
-        where: {
-          job: { recruiterId: user.recruiterProfile.id }
-        }
-      }),
-      prisma.interview.count({
-        where: {
-          application: {
-            job: { recruiterId: user.recruiterProfile.id }
-          },
-          isActive: true
-        }
-      })
-    ]);
-
-    res.json({
-      totalJobs,
-      totalApplications,
-      activeInterviews
-    });
-  } catch (error) {
-    console.error('Error fetching recruiter stats:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
 // Get specific job
 router.get('/jobs/:id', async (req: ClerkAuthRequest, res: Response) => {
   try {
@@ -315,71 +167,6 @@ router.get('/jobs/:id', async (req: ClerkAuthRequest, res: Response) => {
     res.json(job);
   } catch (error) {
     console.error('Error fetching job:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// Get applications for a specific job (recruiter only)
-router.get('/jobs/:id/applications', requireClerkAuth, async (req: ClerkAuthRequest, res: Response) => {
-  try {
-    const userId = req.clerkUserId;
-    const { id: jobId } = req.params;
-
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-      include: { recruiterProfile: true }
-    });
-
-    if (!user || user.role !== 'RECRUITER' || !user.recruiterProfile) {
-      return res.status(403).json({ error: 'Access denied. Recruiter profile required.' });
-    }
-
-    // Verify the job belongs to the recruiter
-    const job = await prisma.job.findFirst({
-      where: {
-        id: jobId,
-        recruiterId: user.recruiterProfile.id
-      }
-    });
-
-    if (!job) {
-      return res.status(404).json({ error: 'Job not found or access denied' });
-    }
-
-    const applications = await prisma.application.findMany({
-      where: {
-        jobId: jobId
-      },
-      include: {
-        candidate: {
-          include: {
-            user: {
-              select: {
-                email: true
-              }
-            }
-          }
-        },
-        interview: {
-          include: {
-            score: true,
-            recordings: true,
-            screenshots: true
-          }
-        }
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
-    });
-
-    res.json(applications);
-  } catch (error) {
-    console.error('Error fetching job applications:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -529,65 +316,6 @@ router.get('/recruiter/applications', requireClerkAuth, async (req: ClerkAuthReq
     res.json(applications);
   } catch (error) {
     console.error('Error fetching recruiter applications:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// Update application status (recruiter only)
-router.patch('/applications/:id/status', requireClerkAuth, async (req: ClerkAuthRequest, res: Response) => {
-  try {
-    const userId = req.clerkUserId;
-    const { id: applicationId } = req.params;
-    const { status } = req.body;
-
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-      include: { recruiterProfile: true }
-    });
-
-    if (!user || user.role !== 'RECRUITER' || !user.recruiterProfile) {
-      return res.status(403).json({ error: 'Access denied. Recruiter profile required.' });
-    }
-
-    // Verify the application belongs to the recruiter's job
-    const application = await prisma.application.findFirst({
-      where: {
-        id: applicationId,
-        job: {
-          recruiterId: user.recruiterProfile.id
-        }
-      }
-    });
-
-    if (!application) {
-      return res.status(404).json({ error: 'Application not found or access denied' });
-    }
-
-    const updatedApplication = await prisma.application.update({
-      where: { id: applicationId },
-      data: { status },
-      include: {
-        candidate: {
-          include: {
-            user: {
-              select: {
-                email: true
-              }
-            }
-          }
-        },
-        job: true,
-        interview: true
-      }
-    });
-
-    res.json(updatedApplication);
-  } catch (error) {
-    console.error('Error updating application status:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -43,15 +43,28 @@ enum Role {
 }
 
 model Job {
-  id           String   @id @default(cuid())
-  title        String
-  description  String
-  recruiter    RecruiterProfile @relation(fields: [recruiterId], references: [id])
-  recruiterId  String
-  applications Application[]
-  createdAt    DateTime @default(now())
-  location     String
-  type         String
+  id                  String   @id @default(cuid())
+  title               String
+  description         String
+  recruiter           RecruiterProfile @relation(fields: [recruiterId], references: [id])
+  recruiterId         String
+  applications        Application[]
+  interviewQuestions  InterviewQuestion[]
+  interviewContext    String?
+  customQuestions     String?  // Custom questions for AI interviewer
+  interviewEndDate    DateTime?
+  screenshotInterval  Int      @default(30) // seconds
+  createdAt           DateTime @default(now())
+  location            String
+  type                String
+}
+
+model InterviewQuestion {
+  id      String @id @default(cuid())
+  job     Job    @relation(fields: [jobId], references: [id])
+  jobId   String
+  question String
+  createdAt DateTime @default(now())
 }
 
 model Application {
@@ -74,21 +87,57 @@ enum ApplicationStatus {
 }
 
 model Interview {
-  id            String   @id @default(cuid())
-  application   Application @relation(fields: [applicationId], references: [id])
-  applicationId String   @unique
-  startedAt     DateTime
-  endedAt       DateTime?
-  score         InterviewScore?
-  videoUrl      String?
-  audioUrl      String?
-  aiSummary     String?
+  id                String   @id @default(cuid())
+  application       Application @relation(fields: [applicationId], references: [id])
+  applicationId     String   @unique
+  scheduledAt       DateTime
+  actualStartedAt   DateTime?
+  endedAt           DateTime?
+  score             InterviewScore?
+  recordings        InterviewRecording[]
+  screenshots       Screenshot[]
+  aiSummary         String?
+  uniqueLink        String   @unique
+  isActive          Boolean  @default(false)
+  aiTranscript      String?
+  strengths         String?
+  weaknesses        String?
+  overallRating     Float?
+}
+
+model InterviewRecording {
+  id          String    @id @default(cuid())
+  interview   Interview @relation(fields: [interviewId], references: [id])
+  interviewId String
+  audioUrl    String?
+  videoUrl    String?
+  recordingType RecordingType
+  createdAt   DateTime  @default(now())
+}
+
+model Screenshot {
+  id          String    @id @default(cuid())
+  interview   Interview @relation(fields: [interviewId], references: [id])
+  interviewId String
+  imageUrl    String
+  takenAt     DateTime  @default(now())
+}
+
+enum RecordingType {
+  AUDIO
+  VIDEO
+  SCREEN
 }
 
 model InterviewScore {
-  id           String   @id @default(cuid())
-  interview    Interview @relation(fields: [interviewId], references: [id])
-  interviewId  String   @unique
-  totalScore   Float
-  details      Json
+  id               String   @id @default(cuid())
+  interview        Interview @relation(fields: [interviewId], references: [id])
+  interviewId      String   @unique
+  communicationScore Float
+  technicalScore   Float
+  problemSolvingScore Float
+  culturalFitScore Float
+  totalScore       Float
+  details          Json
+  createdAt        DateTime @default(now())
 }
