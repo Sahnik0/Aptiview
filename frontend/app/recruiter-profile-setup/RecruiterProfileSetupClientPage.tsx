@@ -52,8 +52,15 @@ export default function RecruiterProfileSetupClientPage() {
         throw new Error(`Failed to save profile: ${errText}`)
       }
       setIsSubmitted(true)
+      
+      // Set flag to indicate user just completed profile setup
+      if (typeof window !== "undefined") {
+        localStorage.setItem("justSignedIn", "true")
+      }
+      
       setTimeout(() => {
-        router.push("/dashboard")
+        // Force a page reload to ensure fresh user data
+        window.location.href = "/dashboard"
       }, 2000)
     } catch (err: any) {
       setError(err.message || "Unknown error")

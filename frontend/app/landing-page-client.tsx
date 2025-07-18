@@ -189,9 +189,23 @@ function AnimatedDemo() {
   const recruiterRef = useRef<HTMLDivElement>(null)
 
   const [activePhase, setActivePhase] = useState(0)
+  const [isMounted, setIsMounted] = useState(false)
   const phases = ["Application", "Analysis", "Interview", "Scoring", "Analytics", "Decision"]
 
+  // Fixed positions to avoid hydration mismatch
+  const particlePositions = [
+    { left: 10, top: 20 },
+    { left: 25, top: 70 },
+    { left: 45, top: 15 },
+    { left: 60, top: 80 },
+    { left: 75, top: 30 },
+    { left: 85, top: 60 },
+    { left: 15, top: 85 },
+    { left: 90, top: 10 },
+  ]
+
   useEffect(() => {
+    setIsMounted(true)
     const interval = setInterval(() => {
       setActivePhase((prev) => (prev + 1) % phases.length)
     }, 2500)
@@ -209,26 +223,25 @@ function AnimatedDemo() {
         className="relative flex h-[600px] w-full items-center justify-center overflow-hidden rounded-xl border bg-gray-50/50 shadow-xl"
         ref={containerRef}
       >
-        {/* Subtle Background Gradients */}
-        {/* Floating Particles */}
-        {[...Array(8)].map((_, i) => (
+        {/* Floating Particles - only render after mount to avoid hydration mismatch */}
+        {isMounted && particlePositions.map((position, i) => (
           <motion.div
             key={i}
             className="absolute w-1.5 h-1.5 bg-gray-400/30 rounded-full"
             animate={{
-              x: [0, Math.random() * 100 - 50],
-              y: [0, Math.random() * 100 - 50],
+              x: [0, (i % 2 === 0 ? 20 : -20)],
+              y: [0, (i % 3 === 0 ? 20 : -20)],
               opacity: [0.2, 0.6, 0.2],
             }}
             transition={{
-              duration: 4 + Math.random() * 2,
+              duration: 4 + (i % 3),
               repeat: Number.POSITIVE_INFINITY,
               ease: "easeInOut",
-              delay: Math.random() * 2,
+              delay: i * 0.3,
             }}
             style={{
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
+              left: `${position.left}%`,
+              top: `${position.top}%`,
             }}
           />
         ))}

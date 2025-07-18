@@ -9,11 +9,12 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { CheckCircle, Video } from "lucide-react"
+import { CheckCircle, Video, Calendar } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import ReactMarkdown from "react-markdown" // Import ReactMarkdown
 import remarkGfm from "remark-gfm" // Import remarkGfm for GitHub Flavored Markdown
 import { useAuth } from "@clerk/nextjs"
+import InterviewScheduleModal from "@/components/InterviewScheduleModal"
 
 interface CandidateApplyClientPageProps {
   jobId?: string
@@ -38,6 +39,8 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
   const [loading, setLoading] = useState(false)
   const [jobLoading, setJobLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showScheduleModal, setShowScheduleModal] = useState(false)
+  const [applicationData, setApplicationData] = useState<any>(null)
   const [formData, setFormData] = useState({
     fullName: "",
     email: "",
@@ -134,10 +137,13 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
         throw new Error(errText || "Failed to submit application");
       }
       
+      const applicationResult = await res.json();
+      setApplicationData({
+        id: applicationResult.id,
+        job: job
+      });
       setIsSubmitted(true);
-      setTimeout(() => {
-        router.push("/candidate/dashboard");
-      }, 2000);
+      setShowScheduleModal(true);
     } catch (err: any) {
       setError(err.message || "Unknown error");
       console.error("Application submission error:", err);
@@ -188,28 +194,53 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
 
   if (isSubmitted) {
     return (
-      <div className="min-h-screen bg-gray-50/50 p-4 sm:p-8 flex items-center justify-center dark:bg-gray-900">
-        <Card className="w-full max-w-md text-center shadow-lg bg-white dark:bg-gray-800 dark:border-gray-700">
-          <CardHeader>
-            <CheckCircle className="h-20 w-20 text-green-500 mx-auto mb-4" />
-            <CardTitle className="text-3xl font-bold text-gray-900 dark:text-gray-100">
-              Application Submitted!
-            </CardTitle>
-            <CardDescription className="text-gray-600 dark:text-gray-400">
-              Your application for the <span className="font-semibold">{displayJobTitle}</span> role is complete.
-              Prepare for your AI interview!
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <Button className="w-full bg-black hover:bg-gray-800 text-lg py-6 dark:bg-gray-100 dark:text-black dark:hover:bg-gray-200">
-              <Video className="h-5 w-5 mr-2" /> Start AI Interview Now (Simulated)
-            </Button>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              (Note: This button will lead to a simulated interview demo for now.)
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+      <>
+        <div className="min-h-screen bg-gray-50/50 p-4 sm:p-8 flex items-center justify-center dark:bg-gray-900">
+          <Card className="w-full max-w-md text-center shadow-lg bg-white dark:bg-gray-800 dark:border-gray-700">
+            <CardHeader>
+              <CheckCircle className="h-20 w-20 text-green-500 mx-auto mb-4" />
+              <CardTitle className="text-3xl font-bold text-gray-900 dark:text-gray-100">
+                Application Submitted!
+              </CardTitle>
+              <CardDescription className="text-gray-600 dark:text-gray-400">
+                Your application for the <span className="font-semibold">{displayJobTitle}</span> role is complete.
+                Now schedule your AI interview!
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <Button 
+                onClick={() => setShowScheduleModal(true)}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-lg py-6"
+              >
+                <Calendar className="h-5 w-5 mr-2" /> Schedule AI Interview
+              </Button>
+              <Button 
+                variant="outline"
+                onClick={() => router.push("/candidate/dashboard")}
+                className="w-full"
+              >
+                Skip for Now - Go to Dashboard
+              </Button>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                You can schedule your interview later from your dashboard.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+        
+        {applicationData && (
+          <InterviewScheduleModal
+            isOpen={showScheduleModal}
+            onClose={() => setShowScheduleModal(false)}
+            application={applicationData}
+            onScheduled={(interviewLink) => {
+              // You can handle the interview link here (maybe store it or show it)
+              console.log('Interview scheduled:', interviewLink);
+              router.push("/candidate/dashboard");
+            }}
+          />
+        )}
+      </>
     )
   }
 

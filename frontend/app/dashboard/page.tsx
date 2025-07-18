@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { PlusCircle, Users, Briefcase, Eye, Calendar, MapPin } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PlusCircle, Users, Briefcase, Eye, Calendar, MapPin, BarChart3 } from "lucide-react";
 import { useAuth } from "@clerk/nextjs";
+import RecruiterInterviewDashboard from "@/components/RecruiterInterviewDashboard";
 
 interface Job {
   id: string;
@@ -227,15 +229,29 @@ export default function RecruiterDashboard() {
           </Card>
         </div>
 
-        {/* Jobs Table */}
-        <Card className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
-          <CardHeader>
-            <CardTitle className="text-xl font-semibold text-gray-900 dark:text-gray-100">
-              Your Job Postings
-            </CardTitle>
-            <CardDescription className="text-gray-600 dark:text-gray-400">
-              Manage and track your active job listings
-            </CardDescription>
+        {/* Main Content with Tabs */}
+        <Tabs defaultValue="jobs" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="jobs" className="flex items-center gap-2">
+              <Briefcase className="h-4 w-4" />
+              Job Management
+            </TabsTrigger>
+            <TabsTrigger value="interviews" className="flex items-center gap-2">
+              <BarChart3 className="h-4 w-4" />
+              Interview Analytics
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="jobs">
+            {/* Jobs Table */}
+            <Card className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+              <CardHeader>
+                <CardTitle className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+                  Your Job Postings
+                </CardTitle>
+                <CardDescription className="text-gray-600 dark:text-gray-400">
+                  Manage and track your active job listings
+                </CardDescription>
           </CardHeader>
           <CardContent>
             {jobs.length === 0 ? (
@@ -305,14 +321,19 @@ export default function RecruiterDashboard() {
                             View Details
                           </Button>
                         </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                      </TableRow>                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="interviews">
+            <RecruiterInterviewDashboard />
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );

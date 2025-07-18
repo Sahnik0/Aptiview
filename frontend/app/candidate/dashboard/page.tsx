@@ -16,6 +16,7 @@ export default function CandidateDashboardPage() {
   const { user, isLoaded } = useUser();
   const router = useRouter();
   const [myApplications, setMyApplications] = useState<any[]>([]);
+  const [myInterviews, setMyInterviews] = useState<any[]>([]);
   const [availableJobs, setAvailableJobs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +50,7 @@ export default function CandidateDashboardPage() {
       setError(null);
       try {
         const token = await getToken();
-        const [appsRes, jobsRes] = await Promise.all([
+        const [appsRes, jobsRes, interviewsRes] = await Promise.all([
           fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/users/applications`, {
             headers: { Authorization: `Bearer ${token}` },
             credentials: "include",
@@ -58,11 +59,20 @@ export default function CandidateDashboardPage() {
             headers: { Authorization: `Bearer ${token}` },
             credentials: "include",
           }),
+          fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/users/my-interviews`, {
+            headers: { Authorization: `Bearer ${token}` },
+            credentials: "include",
+          }),
         ]);
         if (!appsRes.ok || !jobsRes.ok) throw new Error("Failed to fetch data");
-        const [apps, jobs] = await Promise.all([appsRes.json(), jobsRes.json()]);
+        const [apps, jobs, interviews] = await Promise.all([
+          appsRes.json(), 
+          jobsRes.json(), 
+          interviewsRes.ok ? interviewsRes.json() : []
+        ]);
         setMyApplications(apps);
         setAvailableJobs(jobs);
+        setMyInterviews(interviews);
       } catch (err: any) {
         setError(err.message || "Unknown error");
       } finally {
@@ -81,15 +91,27 @@ export default function CandidateDashboardPage() {
   }
 
   // Map backend data to UI fields
-  const mappedApplications = myApplications.map((app) => ({
-    id: app.id,
-    jobTitle: app.job?.title || "",
-    company: app.job?.recruiter?.company || "",
-    status: app.status?.replace(/_/g, " ") || "",
-    date: app.createdAt ? new Date(app.createdAt).toLocaleDateString() : "",
-    location: app.job?.location || "",
-    type: app.job?.type || "",
-  }));
+  const mappedApplications = myApplications.map((app) => {
+    // Find corresponding interview
+    const interview = myInterviews.find(interview => interview.application.id === app.id);
+    
+    return {
+      id: app.id,
+      jobTitle: app.job?.title || "",
+      company: app.job?.recruiter?.company || "",
+      status: app.status?.replace(/_/g, " ") || "",
+      date: app.createdAt ? new Date(app.createdAt).toLocaleDateString() : "",
+      location: app.job?.location || "",
+      type: app.job?.type || "",
+      interview: interview ? {
+        id: interview.id,
+        uniqueLink: interview.uniqueLink,
+        scheduledAt: interview.scheduledAt,
+        isCompleted: !!interview.endedAt,
+        canJoin: !interview.endedAt && new Date(interview.scheduledAt) <= new Date(Date.now() + 60 * 60 * 1000) // Can join 1 hour before
+      } : null
+    };
+  });
   const mappedJobs = availableJobs.map((job) => ({
     id: job.id,
     title: job.title,
@@ -159,6 +181,7 @@ export default function CandidateDashboardPage() {
                       <TableHead className="min-w-[100px]">Company</TableHead>
                       <TableHead className="min-w-[120px]">Status</TableHead>
                       <TableHead className="min-w-[100px]">Date Applied</TableHead>
+                      <TableHead className="min-w-[120px]">Interview</TableHead>
                       <TableHead className="min-w-[80px]">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -176,6 +199,33 @@ export default function CandidateDashboardPage() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-gray-700">{app.date}</TableCell>
+                        <TableCell>
+                          {app.interview ? (
+                            <div className="space-y-1">
+                              <div className="text-xs text-gray-600">
+                                {new Date(app.interview.scheduledAt).toLocaleDateString()} at{' '}
+                                {new Date(app.interview.scheduledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </div>
+                              {app.interview.isCompleted ? (
+                                <Badge variant="secondary" className="text-xs">
+                                  Completed
+                                </Badge>
+                              ) : app.interview.canJoin ? (
+                                <Link href={`/interview/${app.interview.uniqueLink}`}>
+                                  <Button size="sm" className="text-xs bg-green-600 hover:bg-green-700">
+                                    Join Interview
+                                  </Button>
+                                </Link>
+                              ) : (
+                                <Badge variant="outline" className="text-xs">
+                                  Scheduled
+                                </Badge>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-gray-400 text-xs">No interview</span>
+                          )}
+                        </TableCell>
                         <TableCell>
                           <Button variant="ghost" size="sm" className="text-gray-700 hover:bg-gray-100">
                             View Details

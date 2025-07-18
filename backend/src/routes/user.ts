@@ -4,11 +4,31 @@ import { prisma } from '../db';
 
 const router = Router();
 
+// Debug endpoint to check user existence (remove in production)
+router.get('/debug/:clerkId', async (req, res) => {
+  try {
+    const { clerkId } = req.params;
+    const user = await prisma.user.findUnique({
+      where: { clerkId },
+      include: {
+        recruiterProfile: true,
+        candidateProfile: true
+      }
+    });
+    res.json({ exists: !!user, user });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get current user (alias for profile)
 router.get('/me', requireClerkAuth, async (req: ClerkAuthRequest, res: Response) => {
   try {
     const userId = req.clerkUserId;
+    console.log(`/me endpoint - ClerkID: ${userId}`);
+    
     if (!userId) {
+      console.log('/me endpoint - No userId found in request');
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
@@ -21,9 +41,11 @@ router.get('/me', requireClerkAuth, async (req: ClerkAuthRequest, res: Response)
     });
 
     if (!user) {
+      console.log(`/me endpoint - User not found in database for ClerkID: ${userId}`);
       return res.status(404).json({ error: 'User not found' });
     }
 
+    console.log(`/me endpoint - User found: ${user.email}, Role: ${user.role}`);
     res.json(user);
   } catch (error) {
     console.error('Error fetching current user:', error);
@@ -39,29 +61,137 @@ router.post('/provision', requireClerkAuth, async (req: ClerkAuthRequest, res: R
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const { email, role } = req.body;
+    const { email, role, profile } = req.body;
+    
+    console.log(`Provisioning user - ClerkID: ${userId}, Email: ${email}, Role: ${role}, Profile:`, profile);
 
-    const user = await prisma.user.upsert({
-      where: { clerkId: userId },
-      update: {
-        email: email || undefined,
-        role: role || undefined
-      },
-      create: {
-        clerkId: userId,
-        email: email || '',
-        role: role || null
-      },
-      include: {
-        recruiterProfile: true,
-        candidateProfile: true
+    // Use upsert but handle email conflicts manually
+    try {
+      const user = await prisma.user.upsert({
+        where: { clerkId: userId },
+        update: {
+          email: email || undefined,
+          role: role || undefined
+        },
+        create: {
+          clerkId: userId,
+          email: email || '',
+          role: role || null
+        },
+        include: {
+          recruiterProfile: true,
+          candidateProfile: true
+        }
+      });
+
+      // Create profile if role and profile data are provided
+      if (role === 'CANDIDATE' && profile && !user.candidateProfile) {
+        await prisma.candidateProfile.create({
+          data: {
+            userId: user.id,
+            education: profile.education || null,
+            experience: profile.experience || null,
+            skills: profile.skills || null
+          }
+        });
+        console.log('Created candidate profile');
+      } else if (role === 'RECRUITER' && profile && !user.recruiterProfile) {
+        await prisma.recruiterProfile.create({
+          data: {
+            userId: user.id,
+            company: profile.company || '',
+            industry: profile.industry || null
+          }
+        });
+        console.log('Created recruiter profile');
       }
-    });
 
-    res.json(user);
-  } catch (error) {
+      // Fetch updated user with profiles
+      const updatedUser = await prisma.user.findUnique({
+        where: { clerkId: userId },
+        include: {
+          recruiterProfile: true,
+          candidateProfile: true
+        }
+      });
+
+      console.log(`User provisioned successfully: ${updatedUser?.id}`);
+      res.json(updatedUser);
+    } catch (upsertError: any) {
+      console.error('Upsert failed:', upsertError);
+      
+      if (upsertError.code === 'P2002' && upsertError.meta?.target?.includes('email')) {
+        // Email conflict - try to find the user by clerkId instead
+        const existingUser = await prisma.user.findUnique({
+          where: { clerkId: userId },
+          include: {
+            recruiterProfile: true,
+            candidateProfile: true
+          }
+        });
+        
+        if (existingUser) {
+          // User exists, just update the role if provided
+          const updatedUser = await prisma.user.update({
+            where: { clerkId: userId },
+            data: { role: role || existingUser.role },
+            include: {
+              recruiterProfile: true,
+              candidateProfile: true
+            }
+          });
+
+          // Create profile if role and profile data are provided
+          if (role === 'CANDIDATE' && profile && !updatedUser.candidateProfile) {
+            await prisma.candidateProfile.create({
+              data: {
+                userId: updatedUser.id,
+                education: profile.education || null,
+                experience: profile.experience || null,
+                skills: profile.skills || null
+              }
+            });
+            console.log('Created candidate profile for existing user');
+          } else if (role === 'RECRUITER' && profile && !updatedUser.recruiterProfile) {
+            await prisma.recruiterProfile.create({
+              data: {
+                userId: updatedUser.id,
+                company: profile.company || '',
+                industry: profile.industry || null
+              }
+            });
+            console.log('Created recruiter profile for existing user');
+          }
+
+          // Fetch final user with profiles
+          const finalUser = await prisma.user.findUnique({
+            where: { clerkId: userId },
+            include: {
+              recruiterProfile: true,
+              candidateProfile: true
+            }
+          });
+
+          console.log(`User updated after email conflict: ${finalUser?.id}`);
+          res.json(finalUser);
+        } else {
+          throw upsertError;
+        }
+      } else {
+        throw upsertError;
+      }
+    }
+  } catch (error: any) {
     console.error('Error provisioning user:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    if (error.code === 'P2002') {
+      // Prisma unique constraint error
+      if (error.meta?.target?.includes('email')) {
+        return res.status(409).json({ error: 'Email address is already in use by another account' });
+      } else if (error.meta?.target?.includes('clerkId')) {
+        return res.status(409).json({ error: 'User account already exists' });
+      }
+    }
+    res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 });
 
@@ -100,24 +230,86 @@ router.post('/profile', requireClerkAuth, async (req: ClerkAuthRequest, res: Res
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const { email, role } = req.body;
+    const { role, profile } = req.body;
 
-    const user = await prisma.user.upsert({
+    // Get the user
+    const user = await prisma.user.findUnique({
       where: { clerkId: userId },
-      update: {
-        email,
-        role
-      },
-      create: {
-        clerkId: userId,
-        email,
-        role
+      include: {
+        recruiterProfile: true,
+        candidateProfile: true
       }
     });
 
-    res.json(user);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Update user role if provided
+    if (role && user.role !== role) {
+      await prisma.user.update({
+        where: { clerkId: userId },
+        data: { role }
+      });
+    }
+
+    // Create or update profile based on role
+    if (role === 'CANDIDATE' || user.role === 'CANDIDATE') {
+      if (user.candidateProfile) {
+        // Update existing profile
+        await prisma.candidateProfile.update({
+          where: { userId: user.id },
+          data: {
+            education: profile.education || undefined,
+            experience: profile.experience || undefined,
+            skills: profile.skills || undefined
+          }
+        });
+      } else {
+        // Create new profile
+        await prisma.candidateProfile.create({
+          data: {
+            userId: user.id,
+            education: profile.education || null,
+            experience: profile.experience || null,
+            skills: profile.skills || null
+          }
+        });
+      }
+    } else if (role === 'RECRUITER' || user.role === 'RECRUITER') {
+      if (user.recruiterProfile) {
+        // Update existing profile
+        await prisma.recruiterProfile.update({
+          where: { userId: user.id },
+          data: {
+            company: profile.company || undefined,
+            industry: profile.industry || undefined
+          }
+        });
+      } else {
+        // Create new profile
+        await prisma.recruiterProfile.create({
+          data: {
+            userId: user.id,
+            company: profile.company || '',
+            industry: profile.industry || null
+          }
+        });
+      }
+    }
+
+    // Return updated user
+    const updatedUser = await prisma.user.findUnique({
+      where: { clerkId: userId },
+      include: {
+        recruiterProfile: true,
+        candidateProfile: true
+      }
+    });
+
+    res.json(updatedUser);
   } catch (error) {
-    console.error('Error creating/updating user profile:', error);
+    console.error('Error updating profile:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -588,6 +780,60 @@ router.patch('/applications/:id/status', requireClerkAuth, async (req: ClerkAuth
     res.json(updatedApplication);
   } catch (error) {
     console.error('Error updating application status:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get candidate's interviews
+router.get('/my-interviews', requireClerkAuth, async (req: ClerkAuthRequest, res: Response) => {
+  try {
+    const userId = req.clerkUserId;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { clerkId: userId },
+      include: { candidateProfile: true }
+    });
+
+    if (!user || user.role !== 'CANDIDATE' || !user.candidateProfile) {
+      return res.status(403).json({ error: 'Access denied. Candidate profile required.' });
+    }
+
+    const interviews = await prisma.interview.findMany({
+      where: {
+        application: {
+          candidateId: user.candidateProfile.id
+        }
+      },
+      include: {
+        application: {
+          include: {
+            job: {
+              select: {
+                id: true,
+                title: true,
+                location: true,
+                recruiter: {
+                  select: {
+                    company: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      orderBy: {
+        scheduledAt: 'desc'
+      }
+    });
+
+    res.json(interviews);
+  } catch (error) {
+    console.error('Error fetching candidate interviews:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

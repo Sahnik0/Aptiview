@@ -2,51 +2,29 @@ import express, { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { requireClerkAuth, ClerkAuthRequest } from '../middleware/requireClerkAuth';
 import { v4 as uuidv4 } from 'uuid';
+import { sendInterviewInvitation, sendInterviewReport } from '../services/emailService';
+import { AIInterviewer } from '../services/aiInterviewer';
+import { VoiceInterviewer } from '../services/voiceInterviewer';
+import { saveBase64Screenshot } from '../services/fileService';
+import WebSocket from 'ws';
 
 const router = express.Router();
 const prisma = new PrismaClient();
 
-// Service implementations (temporary placeholders)
-const emailService = {
-  async sendInterviewInvitation(email: string, jobTitle: string, scheduledAt: Date, interviewLink: string) {
-    console.log(`Sending interview invitation to ${email} for ${jobTitle} at ${scheduledAt} - Link: ${interviewLink}`);
-  },
-  async sendInterviewReport(recruiterEmail: string, candidateEmail: string, jobTitle: string, analysis: any, recordingUrl: string | null) {
-    console.log(`Sending interview report for ${jobTitle} from ${candidateEmail} to ${recruiterEmail}`);
-  }
+// Helper function to create AI interviewer instance
+const createAIInterviewer = (job: any) => {
+  return new AIInterviewer({
+    jobTitle: job.title,
+    jobDescription: job.description,
+    interviewContext: job.interviewContext || undefined,
+    customQuestions: job.customQuestions ? [job.customQuestions] : undefined
+  });
 };
 
-const aiInterviewer = {
-  async getWelcomeMessage(jobTitle: string, jobDescription: string) {
-    return `Hello! I'm your AI interviewer for the ${jobTitle} position. Let's begin our conversation. Can you start by telling me about yourself?`;
-  },
-  async processMessage(message: string, jobTitle: string, jobDescription: string, customQuestions: string, transcript: string, isFirstMessage: boolean) {
-    return `Thank you for your response. Can you tell me more about your experience relevant to this ${jobTitle} role?`;
-  },
-  async generateSummary(transcript: string, jobTitle: string, jobDescription: string) {
-    return {
-      summary: "Candidate demonstrated good communication skills during the interview.",
-      strengths: "Good technical knowledge, clear communication",
-      weaknesses: "Could improve on specific examples",
-      overallRating: 7.5,
-      scores: {
-        communication: 8.0,
-        technical: 7.0,
-        problemSolving: 7.5,
-        culturalFit: 8.0,
-        total: 7.6
-      }
-    };
-  }
-};
-
-const fileService = {
-  async saveScreenshot(imageData: string, uniqueLink: string) {
-    return `/screenshots/${uniqueLink}_${Date.now()}.png`;
-  },
-  async saveRecording(recordingData: any, uniqueLink: string) {
-    return `/recordings/${uniqueLink}_${Date.now()}.mp4`;
-  }
+// Helper function to save recording (placeholder)
+const saveRecording = async (recordingData: any, uniqueLink: string): Promise<string> => {
+  // For now, just return a mock URL - in production you'd save to cloud storage
+  return `/uploads/recordings/${uniqueLink}_${Date.now()}.webm`;
 };
 
 // Schedule an interview (after job application)
@@ -116,7 +94,7 @@ router.post('/schedule', requireClerkAuth, async (req: ClerkAuthRequest, res: Re
     });
 
     // Send email notification
-    await emailService.sendInterviewInvitation(
+    await sendInterviewInvitation(
       user.email,
       application.job.title,
       new Date(scheduledAt),
@@ -174,14 +152,29 @@ router.get('/:uniqueLink', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Interview not found' });
     }
 
-    // Check if interview is scheduled for now (within 10 minutes of scheduled time)
+    // Check if interview has expired (24 hours after scheduled time)
     const now = new Date();
     const scheduledTime = new Date(interview.scheduledAt);
-    const timeDiff = Math.abs(now.getTime() - scheduledTime.getTime());
-    const tenMinutes = 10 * 60 * 1000;
+    const twentyFourHours = 24 * 60 * 60 * 1000;
+    const timeSinceScheduled = now.getTime() - scheduledTime.getTime();
 
-    if (timeDiff > tenMinutes && !interview.isActive) {
-      return res.status(403).json({ error: 'Interview is not active yet' });
+    // Interview is expired if it's more than 24 hours past scheduled time AND not completed
+    if (timeSinceScheduled > twentyFourHours && !interview.endedAt) {
+      return res.status(403).json({ error: 'Interview link has expired' });
+    }
+
+    // Interview is accessible if:
+    // 1. It's within 1 hour before scheduled time, OR
+    // 2. It's after scheduled time and not expired, OR  
+    // 3. It's already active
+    const oneHourBefore = 60 * 60 * 1000;
+    const timeUntilScheduled = scheduledTime.getTime() - now.getTime();
+    
+    if (timeUntilScheduled > oneHourBefore && !interview.isActive) {
+      return res.status(403).json({ 
+        error: 'Interview is not yet available. Please join within 1 hour of your scheduled time.',
+        scheduledAt: interview.scheduledAt 
+      });
     }
 
     res.json(interview);
@@ -211,12 +204,17 @@ router.post('/:uniqueLink/start', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Interview not found' });
     }
 
-    // Check if interview time has arrived
+    // Check if interview time is reasonable (not more than 1 hour early)
     const now = new Date();
     const scheduledTime = new Date(interview.scheduledAt);
+    const oneHourBefore = 60 * 60 * 1000;
+    const timeUntilScheduled = scheduledTime.getTime() - now.getTime();
     
-    if (now < scheduledTime) {
-      return res.status(403).json({ error: 'Interview has not started yet' });
+    if (timeUntilScheduled > oneHourBefore) {
+      return res.status(403).json({ 
+        error: 'Interview cannot be started more than 1 hour before scheduled time',
+        scheduledAt: interview.scheduledAt 
+      });
     }
 
     // Activate interview and set start time
@@ -229,10 +227,9 @@ router.post('/:uniqueLink/start', async (req: Request, res: Response) => {
     });
 
     // Get AI welcome message
-    const welcomeMessage = await aiInterviewer.getWelcomeMessage(
-      interview.application.job.title,
-      interview.application.job.description
-    );
+    const aiInterviewer = createAIInterviewer(interview.application.job);
+    const welcomeResponse = await aiInterviewer.getNextQuestion();
+    const welcomeMessage = welcomeResponse.question;
 
     res.json({
       interview: updatedInterview,
@@ -266,19 +263,21 @@ router.post('/:uniqueLink/chat', async (req: Request, res: Response) => {
     }
 
     // Get AI response
-    const aiResponse = await aiInterviewer.processMessage(
-      message,
-      interview.application.job.title,
-      interview.application.job.description,
-      interview.application.job.interviewContext || '',
-      interview.aiTranscript || '',
-      isFirstMessage
-    );
+    const aiInterviewer = createAIInterviewer(interview.application.job);
+    
+    // If there's existing transcript, restore conversation history
+    if (interview.aiTranscript && !isFirstMessage) {
+      // Parse transcript and restore conversation state
+      // For simplicity, we'll get the next question based on current state
+    }
+    
+    const aiResponse = await aiInterviewer.getNextQuestion(message);
+    const responseText = aiResponse.question;
 
     // Update transcript
     const updatedTranscript = interview.aiTranscript 
-      ? `${interview.aiTranscript}\n\nCandidate: ${message}\nAI: ${aiResponse}`
-      : `Candidate: ${message}\nAI: ${aiResponse}`;
+      ? `${interview.aiTranscript}\n\nCandidate: ${message}\nAI: ${responseText}`
+      : `Candidate: ${message}\nAI: ${responseText}`;
 
     await prisma.interview.update({
       where: { uniqueLink },
@@ -287,7 +286,7 @@ router.post('/:uniqueLink/chat', async (req: Request, res: Response) => {
       }
     });
 
-    res.json({ response: aiResponse });
+    res.json({ response: responseText });
   } catch (error) {
     console.error('Error processing AI chat:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -309,7 +308,7 @@ router.post('/:uniqueLink/screenshot', async (req: Request, res: Response) => {
     }
 
     // Save screenshot
-    const imageUrl = await fileService.saveScreenshot(imageData, uniqueLink);
+    const imageUrl = await saveBase64Screenshot(imageData, uniqueLink);
 
     const screenshot = await prisma.screenshot.create({
       data: {
@@ -372,7 +371,7 @@ router.post('/:uniqueLink/end', async (req: Request, res: Response) => {
     // Save recording if provided
     let recordingUrl = null;
     if (recordingData) {
-      recordingUrl = await fileService.saveRecording(recordingData, uniqueLink);
+      recordingUrl = await saveRecording(recordingData, uniqueLink);
       await prisma.interviewRecording.create({
         data: {
           interviewId: interview.id,
@@ -383,11 +382,8 @@ router.post('/:uniqueLink/end', async (req: Request, res: Response) => {
     }
 
     // Generate AI summary and scoring
-    const aiAnalysis = await aiInterviewer.generateSummary(
-      interview.aiTranscript || '',
-      interview.application.job.title,
-      interview.application.job.description
-    );
+    const aiInterviewer = createAIInterviewer(interview.application.job);
+    const aiAnalysis = await aiInterviewer.generateInterviewSummary();
 
     // Update interview
     const updatedInterview = await prisma.interview.update({
@@ -396,9 +392,9 @@ router.post('/:uniqueLink/end', async (req: Request, res: Response) => {
         isActive: false,
         endedAt: now,
         aiSummary: aiAnalysis.summary,
-        strengths: aiAnalysis.strengths,
-        weaknesses: aiAnalysis.weaknesses,
-        overallRating: aiAnalysis.overallRating
+        strengths: aiAnalysis.strengths.join(', '),
+        weaknesses: aiAnalysis.weaknesses.join(', '),
+        overallRating: aiAnalysis.scores.overall
       }
     });
 
@@ -410,7 +406,7 @@ router.post('/:uniqueLink/end', async (req: Request, res: Response) => {
         technicalScore: aiAnalysis.scores.technical,
         problemSolvingScore: aiAnalysis.scores.problemSolving,
         culturalFitScore: aiAnalysis.scores.culturalFit,
-        totalScore: aiAnalysis.scores.total,
+        totalScore: aiAnalysis.scores.overall,
         details: aiAnalysis.scores
       }
     });
@@ -422,12 +418,13 @@ router.post('/:uniqueLink/end', async (req: Request, res: Response) => {
     });
 
     // Send report to recruiter
-    await emailService.sendInterviewReport(
+    await sendInterviewReport(
       interview.application.job.recruiter.user.email,
       interview.application.candidate.user.email,
       interview.application.job.title,
-      aiAnalysis,
-      recordingUrl
+      aiAnalysis.summary,
+      [], // screenshots will be sent separately
+      recordingUrl || undefined
     );
 
     res.json({

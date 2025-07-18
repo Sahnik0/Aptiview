@@ -5,6 +5,7 @@ import { prisma } from './db';
 import userRoutes from './routes/user';
 import interviewRoutes from './routes/interview';
 import { clerkMiddleware } from '@clerk/express';
+import { setupWebSocketServer } from './websocketServer';
 
 const app = express();
 app.use(cors({
@@ -27,6 +28,12 @@ app.use('/api/users', userRoutes);
 app.use('/api/interviews', interviewRoutes);
 
 const PORT = process.env.PORT || 4000;
+const WS_PORT = process.env.WS_PORT || 4001;
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-}); 
+});
+
+// Start WebSocket server for voice interviews
+setupWebSocketServer(Number(WS_PORT));
+console.log(`WebSocket server running on port ${WS_PORT}`); 

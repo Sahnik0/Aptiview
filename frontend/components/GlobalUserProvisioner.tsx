@@ -12,9 +12,12 @@ export function GlobalUserProvisioner() {
     let cancelled = false;
     async function provision() {
       try {
-        const token = await getToken({ template: 'backend' });
-        if (!token) return;
-        const email = user.primaryEmailAddress?.emailAddress || user.emailAddresses[0]?.emailAddress;
+        const token = await getToken();
+        if (!token) {
+          console.log("No token available");
+          return;
+        }
+        const email = user?.primaryEmailAddress?.emailAddress || user?.emailAddresses[0]?.emailAddress;
         const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
         const body = { email };
         const res = await fetch(`${backendUrl}/api/users/provision`, {
