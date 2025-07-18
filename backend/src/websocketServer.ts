@@ -18,6 +18,38 @@ export function setupWebSocketServer(server: Server) {
   console.log(`WebSocket server started on HTTP server`);
 
   wss.on('connection', async (ws: AuthenticatedWebSocket, req) => {
+    // Move these to the top of the handler so they are always in scope
+    let interviewTimeout: NodeJS.Timeout | null = null;
+    let interviewEndTime: Date;
+
+    // Define the function FIRST so it is available everywhere in this scope
+    function endInterviewWithConclusion() {
+      if (ws.voiceInterviewer && ws.interviewId) {
+        ws.voiceInterviewer.processUserResponse('[system:conclude]', 0); // Pass 0 seconds left
+        setTimeout(async () => {
+          try {
+            // Generate final summary (for backend only)
+            const summary = await ws.voiceInterviewer!.generateFinalSummary();
+            const transcript = ws.voiceInterviewer!.getTranscript();
+            await prisma.interview.update({
+              where: { id: ws.interviewId },
+              data: {
+                endedAt: new Date(),
+                aiSummary: summary.summary,
+                aiTranscript: JSON.stringify(transcript)
+              }
+            });
+            ws.voiceInterviewer!.endInterview();
+            ws.send(JSON.stringify({ type: 'interview-completed' })); // No summary sent
+            setTimeout(() => ws.close(1000, 'Interview completed'), 2000);
+          } catch (error) {
+            console.error('Error ending interview (timeout):', error);
+            ws.send(JSON.stringify({ type: 'error', message: 'Error ending interview' }));
+          }
+        }, 5000); // Give AI 5 seconds to finish speaking
+      }
+    }
+
     console.log('New WebSocket connection');
 
     // Extract unique link from URL
@@ -163,6 +195,20 @@ export function setupWebSocketServer(server: Server) {
         }
       }));
 
+      // Interview duration timer (10 minutes)
+      // Calculate interviewEndTime
+      const interviewStartTime = interview.actualStartedAt ? new Date(interview.actualStartedAt) : new Date();
+      const INTERVIEW_DURATION_SECONDS = 10 * 60;
+      interviewEndTime = new Date(interviewStartTime.getTime() + INTERVIEW_DURATION_SECONDS * 1000);
+
+      // Start 10-minute timer
+      interviewTimeout = setTimeout(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'assistant-message', message: { role: 'assistant', content: 'Thank you for your time. The interview is now concluding as we have reached the 10-minute limit. I will summarize your responses and end the session.' } }));
+          endInterviewWithConclusion();
+        }
+      }, 10 * 60 * 1000);
+
     } catch (error) {
       console.error('Error setting up interview:', error);
       ws.close(1011, 'Internal server error');
@@ -218,10 +264,12 @@ export function setupWebSocketServer(server: Server) {
                 if (transcription && transcription.trim().length > 0) {
                   // Always process the transcription, even if it's unclear
                   // The voice interviewer will handle unclear responses naturally
-                  await ws.voiceInterviewer.processUserResponse(transcription.trim());
+                  const now = new Date();
+                  const timeLeft = Math.max(0, Math.floor((interviewEndTime.getTime() - now.getTime()) / 1000));
+                  await ws.voiceInterviewer!.processUserResponse(transcription.trim(), timeLeft);
                 } else {
                   console.warn('Empty or invalid transcription, asking for repeat');
-                  await ws.voiceInterviewer.processUserResponse('[unclear speech - please repeat]');
+                  await ws.voiceInterviewer!.processUserResponse('[unclear speech - please repeat]');
                 }
                 
               } catch (error) {
@@ -231,7 +279,7 @@ export function setupWebSocketServer(server: Server) {
                 if (error instanceof Error) {
                   if (error.message.includes('too short') || error.message.includes('3-4 seconds')) {
                     // Let the voice interviewer handle this naturally
-                    await ws.voiceInterviewer.processUserResponse('[speech too short]');
+                    await ws.voiceInterviewer!.processUserResponse('[speech too short]');
                   } else if (error.message.includes('format not supported')) {
                     ws.send(JSON.stringify({ 
                       type: 'error', 
@@ -239,14 +287,14 @@ export function setupWebSocketServer(server: Server) {
                     }));
                   } else if (error.message.includes('Failed to transcribe')) {
                     // Handle our custom transcription failures
-                    await ws.voiceInterviewer.processUserResponse('[unclear audio - could you repeat that?]');
+                    await ws.voiceInterviewer!.processUserResponse('[unclear audio - could you repeat that?]');
                   } else {
                     // For other errors, let the interviewer handle it conversationally
-                    await ws.voiceInterviewer.processUserResponse('[audio processing error]');
+                    await ws.voiceInterviewer!.processUserResponse('[audio processing error]');
                   }
                 } else {
                   // Generic error handling
-                  await ws.voiceInterviewer.processUserResponse('[unclear audio]');
+                  await ws.voiceInterviewer!.processUserResponse('[unclear audio]');
                 }
               }
             }
@@ -255,7 +303,9 @@ export function setupWebSocketServer(server: Server) {
           case 'text-message':
             // Handle text input (for testing/fallback)
             if (message.text && ws.voiceInterviewer) {
-              await ws.voiceInterviewer.processUserResponse(message.text);
+              const nowText = new Date();
+              const timeLeftText = Math.max(0, Math.floor((interviewEndTime.getTime() - nowText.getTime()) / 1000));
+              await ws.voiceInterviewer!.processUserResponse(message.text, timeLeftText);
             }
             break;
 
@@ -288,8 +338,8 @@ export function setupWebSocketServer(server: Server) {
             if (ws.voiceInterviewer && ws.interviewId) {
               try {
                 // Generate final summary
-                const summary = await ws.voiceInterviewer.generateFinalSummary();
-                const transcript = ws.voiceInterviewer.getTranscript();
+                const summary = await ws.voiceInterviewer!.generateFinalSummary();
+                const transcript = ws.voiceInterviewer!.getTranscript();
 
                 // Update interview with results
                 const updatedInterview = await prisma.interview.update({
@@ -363,7 +413,7 @@ export function setupWebSocketServer(server: Server) {
                 }
 
                 // Stop voice interviewer
-                ws.voiceInterviewer.endInterview();
+                ws.voiceInterviewer!.endInterview();
 
                 // Send completion confirmation
                 ws.send(JSON.stringify({ 
@@ -396,9 +446,8 @@ export function setupWebSocketServer(server: Server) {
 
     ws.on('close', () => {
       console.log('WebSocket connection closed');
-      if (ws.voiceInterviewer) {
-        ws.voiceInterviewer.endInterview();
-      }
+      if (interviewTimeout) clearTimeout(interviewTimeout);
+      if (ws.voiceInterviewer) ws.voiceInterviewer.endInterview();
     });
 
     ws.on('error', (error: Error) => {

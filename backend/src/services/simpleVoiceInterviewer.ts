@@ -87,7 +87,7 @@ You are interviewing ${this.config.candidateName || 'the candidate'}. Create a n
     this.currentQuestionIndex++;
   }
 
-  async processUserResponse(userText: string): Promise<void> {
+  async processUserResponse(userText: string, timeLeft?: number): Promise<void> {
     // Add user message to transcript
     const userMessage = {
       role: 'user' as const,
@@ -109,7 +109,7 @@ You are interviewing ${this.config.candidateName || 'the candidate'}. Create a n
       // For initial questions, ask them but then generate follow-ups
       if (this.currentQuestionIndex === 1) {
         // First question already asked, generate natural follow-up
-        nextResponse = await this.generateContextualResponse(userText);
+        nextResponse = await this.generateContextualResponse(userText, timeLeft);
       } else {
         // Ask the next predetermined question
         nextResponse = this.questions[this.currentQuestionIndex];
@@ -117,7 +117,7 @@ You are interviewing ${this.config.candidateName || 'the candidate'}. Create a n
       }
     } else {
       // Generate contextual responses and follow-ups
-      nextResponse = await this.generateContextualResponse(userText);
+      nextResponse = await this.generateContextualResponse(userText, timeLeft);
     }
 
     // Generate speech for the response
@@ -182,13 +182,25 @@ You are interviewing ${this.config.candidateName || 'the candidate'}. Create a n
     return endIndicators.some(indicator => indicator);
   }
 
-  private async generateContextualResponse(userText: string): Promise<string> {
+  private async generateContextualResponse(userText: string, timeLeft?: number): Promise<string> {
     const conversationHistory = this.transcript
       .slice(-6) // Only use last 6 messages for context
       .map(msg => `${msg.role.toUpperCase()}: ${msg.content}`)
       .join('\n');
 
+    let timeInstruction = '';
+    if (typeof timeLeft === 'number') {
+      if (timeLeft <= 60) {
+        timeInstruction = '\n\nIMPORTANT: There is only 1 minute left in the interview. Please ask a final or wrap-up question.';
+      } else if (timeLeft <= 180) {
+        timeInstruction = '\n\nNOTE: Only a few minutes remain. Prioritize the most important questions.';
+      } else {
+        timeInstruction = `\n\nTime remaining in interview: ${Math.floor(timeLeft / 60)} minutes.`;
+      }
+    }
+
     const prompt = `${this.conversationContext}
+${timeInstruction}
 
 RECENT CONVERSATION:
 ${conversationHistory}
@@ -198,10 +210,8 @@ The candidate just said: "${userText}"
 Please respond as a human interviewer would:
 - If their answer was good, acknowledge it and ask a relevant follow-up question
 - If their answer was brief, ask them to elaborate or give an example
-- If their answer was interesting, show genuine interest and dig deeper
-- If they mentioned something specific, ask about it
-- Keep the conversation flowing naturally
-- Don't just move to the next question - engage with what they said
+- If time is almost up, ask a wrap-up or closing question
+- Be aware of the remaining time and adapt your questioning accordingly
 - Use phrases like "That's interesting...", "Tell me more about...", "Can you give me an example...", "How did you handle...", etc.
 
 If this seems like a natural place to wrap up the interview (after covering major topics), provide a polite conclusion.

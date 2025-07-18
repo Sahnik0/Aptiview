@@ -45,6 +45,8 @@ export default function VoiceInterviewPage() {
   const [isRecording, setIsRecording] = useState(false);
   const [showPermissionModal, setShowPermissionModal] = useState(true);
   const [permissionError, setPermissionError] = useState<string | null>(null);
+  const [timeLeft, setTimeLeft] = useState(10 * 60); // 10 minutes in seconds
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Refs
   const wsRef = useRef<WebSocket | null>(null);
@@ -469,6 +471,33 @@ export default function VoiceInterviewPage() {
     };
   }, []);
 
+  // Timer effect
+  useEffect(() => {
+    if (isInterviewActive && !isInterviewEnded) {
+      timerRef.current = setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(timerRef.current!);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current);
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [isInterviewActive, isInterviewEnded]);
+
+  // Format timer mm:ss
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const s = (seconds % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  };
+
   if (error) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
@@ -559,7 +588,13 @@ export default function VoiceInterviewPage() {
                       {interviewData?.job.recruiter.company || 'Company Interview'}
                     </p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 items-center">
+                    {/* Timer badge */}
+                    {isInterviewActive && !isInterviewEnded && (
+                      <Badge variant="outline" className="text-lg px-3 py-1 bg-white border-gray-300 text-gray-900">
+                        ⏰ {formatTime(timeLeft)}
+                      </Badge>
+                    )}
                     <Badge variant={isConnected ? 'default' : 'secondary'}>
                       {isConnected ? 'Connected' : 'Connecting...'}
                     </Badge>
