@@ -13,6 +13,9 @@ import { CheckCircle, Video, Calendar } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import ReactMarkdown from "react-markdown" // Import ReactMarkdown
 import remarkGfm from "remark-gfm" // Import remarkGfm for GitHub Flavored Markdown
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import '../../../node_modules/katex/dist/katex.min.css';
 import { useAuth } from "@clerk/nextjs"
 import InterviewScheduleModal from "@/components/InterviewScheduleModal"
 
@@ -313,7 +316,10 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
             {job ? (
               <ScrollArea className="h-[600px] pr-4">
                 <div className="prose max-w-none text-gray-700 leading-relaxed dark:text-gray-300 dark:prose-invert">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm, remarkMath]}
+                    rehypePlugins={[rehypeKatex]}
+                  >
                     {job.description}
                   </ReactMarkdown>
                 </div>
