@@ -339,8 +339,7 @@ router.post('/jobs', requireClerkAuth, async (req: ClerkAuthRequest, res: Respon
       interviewContext,
       interviewEndDate,
       screenshotInterval,
-      customQuestions,
-      deadline
+      customQuestions
     } = req.body;
 
     const job = await prisma.job.create({
@@ -350,11 +349,10 @@ router.post('/jobs', requireClerkAuth, async (req: ClerkAuthRequest, res: Respon
         location,
         type,
         recruiterId: user.recruiterProfile.id,
-        interviewContext: interviewContext || '',
+        interviewContext: interviewContext || null,
+        customQuestions: customQuestions || null,
         interviewEndDate: interviewEndDate ? new Date(interviewEndDate) : null,
-        screenshotInterval: screenshotInterval || 30,
-        customQuestions: customQuestions || '',
-        deadline: deadline ? new Date(deadline) : null
+        screenshotInterval: screenshotInterval || 30
       }
     });
 
@@ -925,7 +923,7 @@ router.delete('/jobs/:id', requireClerkAuth, async (req: ClerkAuthRequest, res: 
       });
     }
 
-    // Delete the job (cascade delete will handle related records)
+    // Delete the job (this will cascade delete applications, interviews, etc.)
     await prisma.job.delete({
       where: { id: jobId }
     });
@@ -933,18 +931,7 @@ router.delete('/jobs/:id', requireClerkAuth, async (req: ClerkAuthRequest, res: 
     res.json({ message: 'Job deleted successfully' });
   } catch (error) {
     console.error('Error deleting job:', error);
-    
-    // Handle specific Prisma errors
-    if (error instanceof Error) {
-      if (error.message.includes('Record to delete does not exist')) {
-        return res.status(404).json({ error: 'Job not found' });
-      }
-      if (error.message.includes('Foreign key constraint')) {
-        return res.status(400).json({ error: 'Cannot delete job with existing applications or interviews' });
-      }
-    }
-    
-    res.status(500).json({ error: 'Failed to delete job. Please try again.' });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
