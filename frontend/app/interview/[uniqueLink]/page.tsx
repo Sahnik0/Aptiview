@@ -55,7 +55,8 @@ export default function VoiceInterviewPage() {
   // Initialize WebSocket connection
   const connectWebSocket = useCallback(() => {
     try {
-      const wsUrl = `ws://localhost:4001/interview/${uniqueLink}`;
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
+      const wsUrl = backendUrl.replace(/^https?:\/\//, 'wss://').replace(/^http:\/\//, 'ws://') + '/interview/' + uniqueLink;
       console.log('Connecting to:', wsUrl);
       
       wsRef.current = new WebSocket(wsUrl);
