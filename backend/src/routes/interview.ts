@@ -78,10 +78,11 @@ router.post('/schedule', requireClerkAuth, async (req: ClerkAuthRequest, res: Re
     const uniqueLink = uuidv4();
 
     // Create interview record
+    const now = new Date();
     const interview = await prisma.interview.create({
       data: {
         applicationId,
-        scheduledAt: new Date(scheduledAt),
+        scheduledAt: now, // Always use server time
         uniqueLink,
         isActive: false
       }
@@ -93,13 +94,7 @@ router.post('/schedule', requireClerkAuth, async (req: ClerkAuthRequest, res: Re
       data: { status: 'INTERVIEW_SCHEDULED' }
     });
 
-    // Send email notification
-    await sendInterviewInvitation(
-      user.email,
-      application.job.title,
-      new Date(scheduledAt),
-      `${process.env.FRONTEND_URL}/interview/${uniqueLink}`
-    );
+    // Email sending omitted in development (no SMTP credentials)
 
     res.status(201).json({
       interview,

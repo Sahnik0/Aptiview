@@ -17,7 +17,6 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import '../../../node_modules/katex/dist/katex.min.css';
 import { useAuth } from "@clerk/nextjs"
-import InterviewScheduleModal from "@/components/InterviewScheduleModal"
 
 interface CandidateApplyClientPageProps {
   jobId?: string
@@ -42,8 +41,8 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
   const [loading, setLoading] = useState(false)
   const [jobLoading, setJobLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [showScheduleModal, setShowScheduleModal] = useState(false)
   const [applicationData, setApplicationData] = useState<any>(null)
+  const [interviewLink, setInterviewLink] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     fullName: "",
     email: "",
@@ -174,8 +173,25 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
         id: applicationResult.id,
         job: job
       });
+      // Immediately schedule interview for now
+      const interviewRes = await fetch(`${backendUrl}/api/interviews/schedule`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          applicationId: applicationResult.id,
+          scheduledAt: new Date().toISOString()
+        })
+      });
+      if (!interviewRes.ok) {
+        setError("Failed to schedule interview automatically.");
+        return;
+      }
+      const interviewData = await interviewRes.json();
+      setInterviewLink(interviewData.interviewLink);
       setIsSubmitted(true);
-      setShowScheduleModal(true);
     } catch (err: any) {
       setError(err.message || "Unknown error");
       console.error("Application submission error:", err);
@@ -224,7 +240,7 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
     )
   }
 
-  if (alreadyApplied) {
+  if (!isSubmitted && alreadyApplied) {
     return (
       <div className="min-h-screen bg-gray-50/50 p-4 sm:p-8 flex items-center justify-center dark:bg-gray-900">
         <Card className="w-full max-w-md text-center shadow-lg bg-white dark:bg-gray-800 dark:border-gray-700">
@@ -248,54 +264,43 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
 
   if (isSubmitted) {
     return (
-      <>
-        <div className="min-h-screen bg-gray-50/50 p-4 sm:p-8 flex items-center justify-center dark:bg-gray-900">
-          <Card className="w-full max-w-md text-center shadow-lg bg-white dark:bg-gray-800 dark:border-gray-700">
-            <CardHeader>
-              <CheckCircle className="h-20 w-20 text-green-500 mx-auto mb-4" />
-              <CardTitle className="text-3xl font-bold text-gray-900 dark:text-gray-100">
-                Application Submitted!
-              </CardTitle>
-              <CardDescription className="text-gray-600 dark:text-gray-400">
-                Your application for the <span className="font-semibold">{displayJobTitle}</span> role is complete.
-                Now schedule your AI interview!
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
+      <div className="min-h-screen bg-gray-50/50 p-4 sm:p-8 flex items-center justify-center dark:bg-gray-900">
+        <Card className="w-full max-w-md text-center shadow-lg bg-white dark:bg-gray-800 dark:border-gray-700">
+          <CardHeader>
+            <CheckCircle className="h-20 w-20 text-green-500 mx-auto mb-4" />
+            <CardTitle className="text-3xl font-bold text-gray-900 dark:text-gray-100">
+              Application Submitted!
+            </CardTitle>
+            <CardDescription className="text-gray-600 dark:text-gray-400">
+              Your application for the <span className="font-semibold">{displayJobTitle}</span> role is complete.<br />
+              <span className="text-blue-700 dark:text-blue-300">Your AI interview is scheduled and valid for the next 24 hours.</span>
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {interviewLink && (
               <Button 
-                onClick={() => setShowScheduleModal(true)}
+                asChild
                 className="w-full bg-blue-600 hover:bg-blue-700 text-lg py-6"
               >
-                <Calendar className="h-5 w-5 mr-2" /> Schedule AI Interview
+                <a href={interviewLink} target="_blank" rel="noopener noreferrer">
+                  <Video className="h-5 w-5 mr-2" /> Join AI Interview
+                </a>
               </Button>
-              <Button 
-                variant="outline"
-                onClick={() => router.push("/candidate/dashboard")}
-                className="w-full"
-              >
-                Skip for Now - Go to Dashboard
-              </Button>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                You can schedule your interview later from your dashboard.
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-        
-        {applicationData && (
-          <InterviewScheduleModal
-            isOpen={showScheduleModal}
-            onClose={() => setShowScheduleModal(false)}
-            application={applicationData}
-            onScheduled={(interviewLink) => {
-              // You can handle the interview link here (maybe store it or show it)
-              console.log('Interview scheduled:', interviewLink);
-              router.push("/candidate/dashboard");
-            }}
-          />
-        )}
-      </>
-    )
+            )}
+            <Button 
+              variant="outline"
+              onClick={() => router.push("/candidate/dashboard")}
+              className="w-full"
+            >
+              Go to Dashboard
+            </Button>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              The interview link will expire 24 hours after scheduling.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   return (
