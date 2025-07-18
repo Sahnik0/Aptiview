@@ -10,7 +10,11 @@ import { setupWebSocketServer } from './websocketServer';
 
 const app = express();
 app.use(cors({
-  origin: ["http://localhost:3000"], // Add your deployed frontend URL here as needed
+  origin: [
+    "http://localhost:3000", 
+    "https://your-frontend-app.vercel.app", // Replace with your actual Vercel URL
+    process.env.FRONTEND_URL || "http://localhost:3000"
+  ],
   credentials: true,
 }));
 app.use(express.json());
