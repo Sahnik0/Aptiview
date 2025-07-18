@@ -57,11 +57,12 @@ model Job {
   createdAt           DateTime @default(now())
   location            String
   type                String
+  deadline            DateTime? // Application deadline
 }
 
 model InterviewQuestion {
   id      String @id @default(cuid())
-  job     Job    @relation(fields: [jobId], references: [id])
+  job     Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
   jobId   String
   question String
   createdAt DateTime @default(now())
@@ -71,7 +72,7 @@ model Application {
   id            String   @id @default(cuid())
   candidate     CandidateProfile @relation(fields: [candidateId], references: [id])
   candidateId   String
-  job           Job      @relation(fields: [jobId], references: [id])
+  job           Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
   jobId         String
   interview     Interview?
   status        ApplicationStatus @default(PENDING)
@@ -88,7 +89,7 @@ enum ApplicationStatus {
 
 model Interview {
   id                String   @id @default(cuid())
-  application       Application @relation(fields: [applicationId], references: [id])
+  application       Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   applicationId     String   @unique
   scheduledAt       DateTime
   actualStartedAt   DateTime?
@@ -107,7 +108,7 @@ model Interview {
 
 model InterviewRecording {
   id          String    @id @default(cuid())
-  interview   Interview @relation(fields: [interviewId], references: [id])
+  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
   interviewId String
   audioUrl    String?
   videoUrl    String?
@@ -117,7 +118,7 @@ model InterviewRecording {
 
 model Screenshot {
   id          String    @id @default(cuid())
-  interview   Interview @relation(fields: [interviewId], references: [id])
+  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
   interviewId String
   imageUrl    String
   takenAt     DateTime  @default(now())
@@ -131,7 +132,7 @@ enum RecordingType {
 
 model InterviewScore {
   id               String   @id @default(cuid())
-  interview        Interview @relation(fields: [interviewId], references: [id])
+  interview        Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
   interviewId      String   @unique
   communicationScore Float
   technicalScore   Float

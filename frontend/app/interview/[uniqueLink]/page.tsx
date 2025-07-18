@@ -183,8 +183,11 @@ export default function VoiceInterviewPage() {
         // Try audio-only formats for better Whisper compatibility
         const audioFormats = [
           'audio/webm;codecs=opus',
+          'audio/webm;codecs=pcm',
           'audio/webm',
+          'audio/mp4;codecs=mp4a.40.2',
           'audio/mp4',
+          'audio/mpeg',
           ''  // Default
         ];
         
@@ -192,14 +195,22 @@ export default function VoiceInterviewPage() {
         for (const format of audioFormats) {
           if (format === '' || MediaRecorder.isTypeSupported(format)) {
             selectedFormat = format;
+            console.log('Selected audio format:', selectedFormat);
             break;
           }
         }
         
         if (selectedFormat) {
-          mediaRecorder = new MediaRecorder(audioOnlyStream, { mimeType: selectedFormat });
+          // Use specific bitrate for better quality
+          mediaRecorder = new MediaRecorder(audioOnlyStream, { 
+            mimeType: selectedFormat,
+            audioBitsPerSecond: 128000 // 128 kbps for better quality
+          });
         } else {
-          mediaRecorder = new MediaRecorder(audioOnlyStream);
+          // Fallback with high bitrate
+          mediaRecorder = new MediaRecorder(audioOnlyStream, {
+            audioBitsPerSecond: 128000
+          });
         }
         
         console.log('Created audio-only MediaRecorder with format:', selectedFormat || 'default');
@@ -234,35 +245,58 @@ export default function VoiceInterviewPage() {
             console.log('Audio recorded:', audioBlob.size, 'bytes, type:', mimeType);
 
             // Check if audio is long enough (increased minimum size for longer recordings)
-            const minSizeBytes = 10000; // Increased minimum size for 3+ second recordings
+            const minSizeBytes = 15000; // Increased minimum size for better quality
+            const maxSizeBytes = 10 * 1024 * 1024; // 10MB max to prevent memory issues
+            
             if (audioBlob.size < minSizeBytes) {
               console.warn('Audio too short, skipping transcription. Size:', audioBlob.size, 'bytes');
               setError('Please speak for at least 3-4 seconds. Try again.');
               return; // Don't send very short audio clips
             }
 
-            // Convert to ArrayBuffer then to base64
-            const arrayBuffer = await audioBlob.arrayBuffer();
-            const uint8Array = new Uint8Array(arrayBuffer);
-            
-            // Use a more efficient base64 conversion for large data
-            let base64Audio = '';
-            const chunkSize = 8192;
-            for (let i = 0; i < uint8Array.length; i += chunkSize) {
-              const chunk = uint8Array.slice(i, i + chunkSize);
-              base64Audio += btoa(String.fromCharCode(...chunk));
+            if (audioBlob.size > maxSizeBytes) {
+              console.warn('Audio too large, skipping transcription. Size:', audioBlob.size, 'bytes');
+              setError('Audio recording too long. Please keep responses under 2 minutes.');
+              return; // Don't send very large audio clips
             }
 
-            if (wsRef.current?.readyState === WebSocket.OPEN) {
-              console.log('Sending audio data to server... Size:', audioBlob.size, 'bytes');
-              wsRef.current.send(JSON.stringify({
-                type: 'audio-data',
-                audioData: base64Audio,
-                mimeType: mimeType
-              }));
-            } else {
-              console.error('WebSocket not connected, cannot send audio');
-              setError('Connection lost. Please refresh the page.');
+            // Convert to base64 using FileReader for better memory management
+            try {
+              const base64Audio = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                  const result = reader.result as string;
+                  // Remove the data URL prefix (data:audio/webm;base64,)
+                  const base64 = result.split(',')[1];
+                  resolve(base64);
+                };
+                reader.onerror = () => reject(new Error('Failed to convert audio to base64'));
+                reader.readAsDataURL(audioBlob);
+              });
+
+              // Log audio details for debugging
+              console.log('Audio details:', {
+                size: audioBlob.size,
+                type: mimeType,
+                base64Length: base64Audio.length,
+                sampleSize: base64Audio.substring(0, 50) + '...'
+              });
+
+              if (wsRef.current?.readyState === WebSocket.OPEN) {
+                console.log('Sending audio data to server... Size:', audioBlob.size, 'bytes');
+                wsRef.current.send(JSON.stringify({
+                  type: 'audio-data',
+                  audioData: base64Audio,
+                  mimeType: mimeType,
+                  size: audioBlob.size // Add size for backend validation
+                }));
+              } else {
+                console.error('WebSocket not connected, cannot send audio');
+                setError('Connection lost. Please refresh the page.');
+              }
+            } catch (conversionError) {
+              console.error('Error converting audio to base64:', conversionError);
+              setError('Failed to process audio. Please try again.');
             }
           }
         } catch (error) {

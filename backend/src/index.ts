@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
 import { prisma } from './db';
 import userRoutes from './routes/user';
 import interviewRoutes from './routes/interview';
@@ -20,6 +21,9 @@ app.use(clerkMiddleware({
   secretKey: process.env.CLERK_SECRET_KEY,
 }));
 
+// Serve static files from uploads directory
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
@@ -36,4 +40,4 @@ app.listen(PORT, () => {
 
 // Start WebSocket server for voice interviews
 setupWebSocketServer(Number(WS_PORT));
-console.log(`WebSocket server running on port ${WS_PORT}`); 
+console.log(`WebSocket server running on port ${WS_PORT}`);

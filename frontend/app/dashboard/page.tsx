@@ -7,7 +7,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { PlusCircle, Users, Briefcase, Eye, Calendar, MapPin, BarChart3 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { PlusCircle, Users, Briefcase, Eye, Calendar, MapPin, BarChart3, Trash2, Edit, Settings } from "lucide-react";
 import { useAuth } from "@clerk/nextjs";
 import RecruiterInterviewDashboard from "@/components/RecruiterInterviewDashboard";
 
@@ -17,6 +20,7 @@ interface Job {
   location: string;
   type: string;
   createdAt: string;
+  deadline?: string;
   applicantsCount: number;
   interviewsCount: number;
   shortlistedCount: number;
@@ -42,10 +46,124 @@ export default function RecruiterDashboard() {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
+  const [templates, setTemplates] = useState([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [customContext, setCustomContext] = useState('');
+  const [customQuestions, setCustomQuestions] = useState('');
+  const [savingInstructions, setSavingInstructions] = useState(false);
 
   useEffect(() => {
     fetchDashboardData();
+    fetchAITemplates();
   }, []);
+
+  const fetchAITemplates = async () => {
+    try {
+      setTemplatesLoading(true);
+      const token = await getToken();
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/ai-templates`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch AI templates');
+      }
+
+      const data = await response.json();
+      setTemplates(data);
+    } catch (error) {
+      console.error('Error fetching AI templates:', error);
+    } finally {
+      setTemplatesLoading(false);
+    }
+  };
+
+  const saveCustomInstructions = async () => {
+    try {
+      setSavingInstructions(true);
+      // For now, we'll store this in localStorage
+      // In a real app, you'd want to save this to your backend
+      localStorage.setItem('customAIInstructions', JSON.stringify({
+        context: customContext,
+        questions: customQuestions
+      }));
+      alert('Custom instructions saved successfully!');
+    } catch (error) {
+      console.error('Error saving custom instructions:', error);
+      alert('Failed to save custom instructions');
+    } finally {
+      setSavingInstructions(false);
+    }
+  };
+
+  const loadCustomInstructions = () => {
+    try {
+      const saved = localStorage.getItem('customAIInstructions');
+      if (saved) {
+        const { context, questions } = JSON.parse(saved);
+        setCustomContext(context || '');
+        setCustomQuestions(questions || '');
+      }
+    } catch (error) {
+      console.error('Error loading custom instructions:', error);
+    }
+  };
+
+  const copyTemplateToCustom = (template: any) => {
+    setCustomContext(template.context);
+    setCustomQuestions(template.questions.join('\n'));
+  };
+
+  useEffect(() => {
+    loadCustomInstructions();
+  }, []);
+
+  const deleteJob = async (jobId: string) => {
+    if (!confirm('Are you sure you want to delete this job? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      setDeleteLoading(jobId);
+      const token = await getToken();
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/jobs/${jobId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        // Check if response is JSON or HTML
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to delete job');
+        } else {
+          // If it's HTML, it's likely a server error page
+          const errorText = await response.text();
+          console.error('Server returned HTML error:', errorText);
+          throw new Error(`Server error: ${response.status} ${response.statusText}`);
+        }
+      }
+
+      // Remove job from state
+      setJobs(jobs.filter(job => job.id !== jobId));
+      
+      // Show success message
+      alert('Job deleted successfully');
+    } catch (error) {
+      console.error('Error deleting job:', error);
+      alert(error instanceof Error ? error.message : 'Failed to delete job');
+    } finally {
+      setDeleteLoading(null);
+    }
+  };
 
   const fetchDashboardData = async () => {
     try {
@@ -231,10 +349,14 @@ export default function RecruiterDashboard() {
 
         {/* Main Content with Tabs */}
         <Tabs defaultValue="jobs" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="jobs" className="flex items-center gap-2">
               <Briefcase className="h-4 w-4" />
               Job Management
+            </TabsTrigger>
+            <TabsTrigger value="ai-settings" className="flex items-center gap-2">
+              <Settings className="h-4 w-4" />
+              AI Settings
             </TabsTrigger>
             <TabsTrigger value="interviews" className="flex items-center gap-2">
               <BarChart3 className="h-4 w-4" />
@@ -280,6 +402,7 @@ export default function RecruiterDashboard() {
                       <TableHead className="text-gray-600 dark:text-gray-400">Location</TableHead>
                       <TableHead className="text-gray-600 dark:text-gray-400">Type</TableHead>
                       <TableHead className="text-gray-600 dark:text-gray-400">Applications</TableHead>
+                      <TableHead className="text-gray-600 dark:text-gray-400">Deadline</TableHead>
                       <TableHead className="text-gray-600 dark:text-gray-400">Posted</TableHead>
                       <TableHead className="text-gray-600 dark:text-gray-400">Actions</TableHead>
                     </TableRow>
@@ -308,33 +431,187 @@ export default function RecruiterDashboard() {
                           </div>
                         </TableCell>
                         <TableCell className="text-gray-600 dark:text-gray-400">
+                          {job.deadline ? (
+                            <div className="flex items-center">
+                              <Calendar className="h-3 w-3 mr-1" />
+                              {formatDate(job.deadline)}
+                            </div>
+                          ) : (
+                            <span className="text-gray-400">No deadline</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-gray-600 dark:text-gray-400">
                           {formatDate(job.createdAt)}
                         </TableCell>
                         <TableCell>
-                          <Button
-                            onClick={() => router.push(`/recruiter/jobs/${job.id}`)}
-                            size="sm"
-                            variant="outline"
-                            className="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
-                          >
-                            <Eye className="h-3 w-3 mr-1" />
-                            View Details
-                          </Button>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              onClick={() => router.push(`/recruiter/jobs/${job.id}`)}
+                              size="sm"
+                              variant="outline"
+                              className="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
+                            >
+                              <Eye className="h-3 w-3 mr-1" />
+                              View
+                            </Button>
+                            <Button
+                              onClick={() => router.push(`/recruiter/jobs/${job.id}/edit`)}
+                              size="sm"
+                              variant="outline"
+                              className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                            >
+                              <Edit className="h-3 w-3 mr-1" />
+                              Edit
+                            </Button>
+                            <Button
+                              onClick={() => deleteJob(job.id)}
+                              disabled={deleteLoading === job.id}
+                              size="sm"
+                              variant="outline"
+                              className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+                            >
+                              <Trash2 className="h-3 w-3 mr-1" />
+                              {deleteLoading === job.id ? 'Deleting...' : 'Delete'}
+                            </Button>
+                          </div>
                         </TableCell>
-                      </TableRow>                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </TabsContent>
 
-          <TabsContent value="interviews">
-            <RecruiterInterviewDashboard />
-          </TabsContent>
-        </Tabs>
-      </div>
-    </div>
-  );
+      <TabsContent value="ai-settings">
+        <div className="space-y-6">
+          {/* Custom AI Instructions */}
+          <Card className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+            <CardHeader>
+              <CardTitle className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+                Custom AI Instructions
+              </CardTitle>
+              <CardDescription className="text-gray-600 dark:text-gray-400">
+                Create custom contexts and instructions for your AI interviewer
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="customContext" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Custom Interview Context
+                  </label>
+                  <textarea
+                    id="customContext"
+                    value={customContext}
+                    onChange={(e) => setCustomContext(e.target.value)}
+                    placeholder="Enter specific instructions for the AI interviewer. Example: 'Focus on leadership experience and team management skills. Ask about specific projects and outcomes.'"
+                    className="w-full h-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="customQuestions" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Custom Questions (one per line)
+                  </label>
+                  <textarea
+                    id="customQuestions"
+                    value={customQuestions}
+                    onChange={(e) => setCustomQuestions(e.target.value)}
+                    placeholder="Enter specific questions you want the AI to ask. Example:
+Tell me about a time when you had to lead a difficult project.
+How do you handle conflicts in your team?
+What's your approach to setting priorities?"
+                    className="w-full h-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+                <Button 
+                  onClick={saveCustomInstructions}
+                  disabled={savingInstructions}
+                  className="w-full"
+                >
+                  {savingInstructions ? 'Saving...' : 'Save Custom Instructions'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* AI Template Library */}
+          <Card className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+            <CardHeader>
+              <CardTitle className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+                AI Interview Templates
+              </CardTitle>
+              <CardDescription className="text-gray-600 dark:text-gray-400">
+                Pre-built templates for different types of interviews
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {templatesLoading ? (
+                <div className="text-center py-8">Loading templates...</div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {templates.map((template: any) => (
+                    <Card key={template.id} className="border border-gray-200 dark:border-gray-600">
+                      <CardHeader>
+                        <CardTitle className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                          {template.name}
+                        </CardTitle>
+                        <CardDescription className="text-sm text-gray-600 dark:text-gray-400">
+                          {template.description}
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          <div>
+                            <h4 className="font-medium text-gray-900 dark:text-gray-100 mb-2">Context:</h4>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">{template.context}</p>
+                          </div>
+                          <div>
+                            <h4 className="font-medium text-gray-900 dark:text-gray-100 mb-2">Sample Questions:</h4>
+                            <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
+                              {template.questions.slice(0, 2).map((question: string, index: number) => (
+                                <li key={index} className="flex items-start">
+                                  <span className="mr-2">•</span>
+                                  {question}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                          <div className="flex space-x-2">
+                            <Button
+                              onClick={() => router.push(`/recruiter/create-job?template=${template.id}`)}
+                              size="sm"
+                              className="flex-1"
+                            >
+                              Use in New Job
+                            </Button>
+                            <Button
+                              onClick={() => copyTemplateToCustom(template)}
+                              size="sm"
+                              variant="outline"
+                              className="flex-1"
+                            >
+                              Copy to Custom
+                            </Button>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </TabsContent>
+
+      <TabsContent value="interviews">
+        <RecruiterInterviewDashboard />
+      </TabsContent>
+    </Tabs>
+  </div>
+</div>
+);
 }

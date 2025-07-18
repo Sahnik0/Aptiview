@@ -1,7 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { PrismaClient } from '@prisma/client';
 import { SimpleVoiceInterviewer } from './services/simpleVoiceInterviewer';
-import { saveBase64Screenshot } from './services/fileService';
+import { saveBase64Screenshot, saveAudioRecording } from './services/fileService';
 
 const prisma = new PrismaClient();
 
@@ -179,39 +179,73 @@ export function setupWebSocketServer(port: number = 4001) {
               try {
                 console.log('Received audio data, size:', message.audioData.length);
                 console.log('Audio mime type:', message.mimeType);
+                console.log('Audio reported size:', message.size);
                 const audioBuffer = Buffer.from(message.audioData, 'base64');
                 console.log('Audio buffer size:', audioBuffer.length, 'bytes');
                 
-                const transcription = await ws.voiceInterviewer.transcribeAudio(audioBuffer, message.mimeType);
-                console.log('Transcription:', transcription);
-                
-                if (transcription.trim()) {
-                  await ws.voiceInterviewer.processUserResponse(transcription.trim());
-                } else {
-                  console.log('Empty transcription, skipping');
-                  // Send feedback to user
-                  ws.send(JSON.stringify({ 
-                    type: 'transcription-status', 
-                    message: 'No speech detected. Please try speaking more clearly.' 
-                  }));
+                // Additional validation
+                if (message.size && Math.abs(audioBuffer.length - message.size) > 1000) {
+                  console.warn('Audio size mismatch - reported:', message.size, 'actual:', audioBuffer.length);
                 }
-              } catch (error) {
-                console.error('Error processing audio:', error);
                 
-                // Send more specific error messages to user
-                let errorMessage = 'Error processing your audio. Please try speaking again.';
-                if (error instanceof Error) {
-                  if (error.message.includes('too short') || error.message.includes('1 second')) {
-                    errorMessage = 'Please speak for at least 1-2 seconds before stopping recording.';
-                  } else if (error.message.includes('format not supported')) {
-                    errorMessage = 'Audio format issue. Please refresh the page and try again.';
+                // Save audio recording to file system
+                if (ws.interviewId) {
+                  try {
+                    const audioUrl = await saveAudioRecording(audioBuffer, message.mimeType, ws.interviewId);
+                    
+                    // Save recording to database
+                    await prisma.interviewRecording.create({
+                      data: {
+                        interviewId: ws.interviewId,
+                        audioUrl,
+                        recordingType: 'AUDIO'
+                      }
+                    });
+                    
+                    console.log('Audio recording saved:', audioUrl);
+                  } catch (saveError) {
+                    console.error('Error saving audio recording:', saveError);
+                    // Continue with transcription even if saving fails
                   }
                 }
                 
-                ws.send(JSON.stringify({ 
-                  type: 'error', 
-                  message: errorMessage 
-                }));
+                const transcription = await ws.voiceInterviewer.transcribeAudio(audioBuffer, message.mimeType);
+                console.log('Transcription result:', transcription);
+                
+                // Validate transcription quality
+                if (transcription && transcription.trim().length > 0) {
+                  // Always process the transcription, even if it's unclear
+                  // The voice interviewer will handle unclear responses naturally
+                  await ws.voiceInterviewer.processUserResponse(transcription.trim());
+                } else {
+                  console.warn('Empty or invalid transcription, asking for repeat');
+                  await ws.voiceInterviewer.processUserResponse('[unclear speech - please repeat]');
+                }
+                
+              } catch (error) {
+                console.error('Error processing audio:', error);
+                
+                // Handle transcription errors more gracefully
+                if (error instanceof Error) {
+                  if (error.message.includes('too short') || error.message.includes('3-4 seconds')) {
+                    // Let the voice interviewer handle this naturally
+                    await ws.voiceInterviewer.processUserResponse('[speech too short]');
+                  } else if (error.message.includes('format not supported')) {
+                    ws.send(JSON.stringify({ 
+                      type: 'error', 
+                      message: 'Audio format issue. Please refresh the page and try again.' 
+                    }));
+                  } else if (error.message.includes('Failed to transcribe')) {
+                    // Handle our custom transcription failures
+                    await ws.voiceInterviewer.processUserResponse('[unclear audio - could you repeat that?]');
+                  } else {
+                    // For other errors, let the interviewer handle it conversationally
+                    await ws.voiceInterviewer.processUserResponse('[audio processing error]');
+                  }
+                } else {
+                  // Generic error handling
+                  await ws.voiceInterviewer.processUserResponse('[unclear audio]');
+                }
               }
             }
             break;

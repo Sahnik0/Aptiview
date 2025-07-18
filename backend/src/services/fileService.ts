@@ -89,6 +89,34 @@ export const saveBase64Screenshot = async (
   }
 };
 
+export const saveAudioRecording = async (
+  audioBuffer: Buffer,
+  mimeType: string,
+  interviewId: string
+): Promise<string> => {
+  try {
+    await ensureDirectoryExists(recordingsDir);
+    
+    // Determine file extension based on mime type
+    let extension = '.wav'; // default
+    if (mimeType.includes('mp3')) extension = '.mp3';
+    else if (mimeType.includes('m4a')) extension = '.m4a';
+    else if (mimeType.includes('ogg')) extension = '.ogg';
+    else if (mimeType.includes('webm')) extension = '.webm';
+    
+    const filename = `${interviewId}-${Date.now()}${extension}`;
+    const filepath = path.join(recordingsDir, filename);
+    
+    await fs.writeFile(filepath, audioBuffer);
+    
+    // Return relative path for storage in database
+    return `/uploads/recordings/${filename}`;
+  } catch (error) {
+    console.error('Error saving audio recording:', error);
+    throw error;
+  }
+};
+
 export const getFileUrl = (relativePath: string): string => {
   const baseUrl = process.env.BACKEND_URL || 'http://localhost:4000';
   return `${baseUrl}${relativePath}`;

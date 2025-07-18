@@ -338,7 +338,9 @@ router.post('/jobs', requireClerkAuth, async (req: ClerkAuthRequest, res: Respon
       type,
       interviewContext,
       interviewEndDate,
-      screenshotInterval
+      screenshotInterval,
+      customQuestions,
+      deadline
     } = req.body;
 
     const job = await prisma.job.create({
@@ -350,7 +352,9 @@ router.post('/jobs', requireClerkAuth, async (req: ClerkAuthRequest, res: Respon
         recruiterId: user.recruiterProfile.id,
         interviewContext: interviewContext || '',
         interviewEndDate: interviewEndDate ? new Date(interviewEndDate) : null,
-        screenshotInterval: screenshotInterval || 30
+        screenshotInterval: screenshotInterval || 30,
+        customQuestions: customQuestions || '',
+        deadline: deadline ? new Date(deadline) : null
       }
     });
 
@@ -364,7 +368,40 @@ router.post('/jobs', requireClerkAuth, async (req: ClerkAuthRequest, res: Respon
 // Get all jobs (public endpoint for browsing)
 router.get('/jobs', async (req: ClerkAuthRequest, res: Response) => {
   try {
+    const userId = req.clerkUserId;
+    
+    // Get candidate's applications if user is logged in
+    let candidateApplications: string[] = [];
+    if (userId) {
+      const user = await prisma.user.findUnique({
+        where: { clerkId: userId },
+        include: {
+          candidateProfile: {
+            include: {
+              applications: {
+                select: {
+                  jobId: true
+                }
+              }
+            }
+          }
+        }
+      });
+      
+      if (user && user.candidateProfile) {
+        candidateApplications = user.candidateProfile.applications.map(app => app.jobId);
+      }
+    }
+
     const jobs = await prisma.job.findMany({
+      where: {
+        // Exclude jobs that the candidate has already applied to
+        ...(candidateApplications.length > 0 ? {
+          id: {
+            notIn: candidateApplications
+          }
+        } : {})
+      },
       include: {
         recruiter: {
           include: {
@@ -834,6 +871,267 @@ router.get('/my-interviews', requireClerkAuth, async (req: ClerkAuthRequest, res
     res.json(interviews);
   } catch (error) {
     console.error('Error fetching candidate interviews:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Delete job posting (recruiter only)
+router.delete('/jobs/:id', requireClerkAuth, async (req: ClerkAuthRequest, res: Response) => {
+  try {
+    const userId = req.clerkUserId;
+    const jobId = req.params.id;
+    
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { clerkId: userId },
+      include: { recruiterProfile: true }
+    });
+
+    if (!user || user.role !== 'RECRUITER' || !user.recruiterProfile) {
+      return res.status(403).json({ error: 'Access denied. Recruiter profile required.' });
+    }
+
+    // Check if job exists and belongs to this recruiter
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      include: {
+        applications: {
+          include: {
+            interview: true
+          }
+        }
+      }
+    });
+
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    if (job.recruiterId !== user.recruiterProfile.id) {
+      return res.status(403).json({ error: 'Access denied. You can only delete your own jobs.' });
+    }
+
+    // Check if there are active interviews
+    const activeInterviews = job.applications.some(app => 
+      app.interview && !app.interview.endedAt
+    );
+
+    if (activeInterviews) {
+      return res.status(400).json({ 
+        error: 'Cannot delete job with active interviews. Please wait for all interviews to complete.' 
+      });
+    }
+
+    // Delete the job (cascade delete will handle related records)
+    await prisma.job.delete({
+      where: { id: jobId }
+    });
+
+    res.json({ message: 'Job deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting job:', error);
+    
+    // Handle specific Prisma errors
+    if (error instanceof Error) {
+      if (error.message.includes('Record to delete does not exist')) {
+        return res.status(404).json({ error: 'Job not found' });
+      }
+      if (error.message.includes('Foreign key constraint')) {
+        return res.status(400).json({ error: 'Cannot delete job with existing applications or interviews' });
+      }
+    }
+    
+    res.status(500).json({ error: 'Failed to delete job. Please try again.' });
+  }
+});
+
+// Update job posting (recruiter only)
+router.put('/jobs/:id', requireClerkAuth, async (req: ClerkAuthRequest, res: Response) => {
+  try {
+    const userId = req.clerkUserId;
+    const jobId = req.params.id;
+    
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { clerkId: userId },
+      include: { recruiterProfile: true }
+    });
+
+    if (!user || user.role !== 'RECRUITER' || !user.recruiterProfile) {
+      return res.status(403).json({ error: 'Access denied. Recruiter profile required.' });
+    }
+
+    // Check if job exists and belongs to this recruiter
+    const job = await prisma.job.findUnique({
+      where: { id: jobId }
+    });
+
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    if (job.recruiterId !== user.recruiterProfile.id) {
+      return res.status(403).json({ error: 'Access denied. You can only update your own jobs.' });
+    }
+
+    const {
+      title,
+      description,
+      location,
+      type,
+      interviewContext,
+      interviewEndDate,
+      screenshotInterval,
+      customQuestions
+    } = req.body;
+
+    const updatedJob = await prisma.job.update({
+      where: { id: jobId },
+      data: {
+        title,
+        description,
+        location,
+        type,
+        interviewContext,
+        interviewEndDate: interviewEndDate ? new Date(interviewEndDate) : null,
+        screenshotInterval: screenshotInterval || 30,
+        customQuestions
+      }
+    });
+
+    res.json(updatedJob);
+  } catch (error) {
+    console.error('Error updating job:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get AI instruction templates
+router.get('/ai-templates', requireClerkAuth, async (req: ClerkAuthRequest, res: Response) => {
+  try {
+    const templates = [
+      {
+        id: 'technical-focus',
+        name: 'Technical Focus',
+        description: 'Focus on technical skills and problem-solving abilities',
+        context: 'Focus heavily on technical skills, coding abilities, and problem-solving approaches. Ask about specific technologies, frameworks, and methodologies. Probe deep into technical challenges they\'ve faced and how they solved them.',
+        questions: [
+          'Walk me through a complex technical problem you\'ve solved recently',
+          'How do you approach debugging difficult issues?',
+          'What technologies do you feel most confident with and why?',
+          'Describe your development workflow and best practices'
+        ]
+      },
+      {
+        id: 'behavioral-focus',
+        name: 'Behavioral Focus',
+        description: 'Emphasize soft skills, teamwork, and cultural fit',
+        context: 'Focus on behavioral questions, teamwork, communication skills, and cultural fit. Explore how they handle challenges, work with others, and adapt to different situations.',
+        questions: [
+          'Tell me about a time when you had to work with a difficult team member',
+          'How do you handle tight deadlines and pressure?',
+          'Describe a situation where you had to learn something completely new',
+          'How do you give and receive feedback?'
+        ]
+      },
+      {
+        id: 'leadership-focus',
+        name: 'Leadership Focus',
+        description: 'Assess leadership potential and management skills',
+        context: 'Focus on leadership experience, decision-making abilities, and potential for growth. Ask about times they\'ve led projects, made difficult decisions, or mentored others.',
+        questions: [
+          'Describe a time when you had to lead a project or team',
+          'How do you motivate team members who are struggling?',
+          'Tell me about a difficult decision you had to make',
+          'How do you handle conflicts within your team?'
+        ]
+      },
+      {
+        id: 'startup-focus',
+        name: 'Startup Environment',
+        description: 'Assess adaptability and startup mindset',
+        context: 'Focus on adaptability, resourcefulness, and comfort with ambiguity. Ask about their ability to wear multiple hats, work in fast-paced environments, and handle uncertainty.',
+        questions: [
+          'How do you thrive in ambiguous or rapidly changing situations?',
+          'Tell me about a time when you had to do something outside your job description',
+          'How do you prioritize when everything seems urgent?',
+          'What attracts you to working in a startup environment?'
+        ]
+      },
+      {
+        id: 'customer-focus',
+        name: 'Customer-Centric',
+        description: 'Emphasize customer service and user experience',
+        context: 'Focus on customer-centric thinking, user experience, and service orientation. Ask about how they understand and solve customer problems.',
+        questions: [
+          'How do you approach understanding customer needs?',
+          'Tell me about a time when you went above and beyond for a customer',
+          'How do you handle difficult or unhappy customers?',
+          'Describe how you would improve our customer experience'
+        ]
+      }
+    ];
+
+    res.json(templates);
+  } catch (error) {
+    console.error('Error fetching AI templates:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get interview recordings for recruiter
+router.get('/interviews/:interviewId/recordings', requireClerkAuth, async (req: ClerkAuthRequest, res: Response) => {
+  try {
+    const userId = req.clerkUserId;
+    const interviewId = req.params.interviewId;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { clerkId: userId },
+      include: { recruiterProfile: true }
+    });
+
+    if (!user || user.role !== 'RECRUITER' || !user.recruiterProfile) {
+      return res.status(403).json({ error: 'Access denied. Recruiter profile required.' });
+    }
+
+    // Get interview with recordings, but first verify it belongs to this recruiter
+    const interview = await prisma.interview.findUnique({
+      where: { id: interviewId },
+      include: {
+        application: {
+          include: {
+            job: true
+          }
+        },
+        recordings: {
+          orderBy: {
+            createdAt: 'desc'
+          }
+        }
+      }
+    });
+
+    if (!interview) {
+      return res.status(404).json({ error: 'Interview not found' });
+    }
+
+    if (interview.application.job.recruiterId !== user.recruiterProfile.id) {
+      return res.status(403).json({ error: 'Access denied. You can only view recordings for your own job interviews.' });
+    }
+
+    res.json(interview.recordings);
+  } catch (error) {
+    console.error('Error fetching interview recordings:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
