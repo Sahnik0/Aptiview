@@ -2,6 +2,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { PrismaClient } from '@prisma/client';
 import { SimpleVoiceInterviewer } from './services/simpleVoiceInterviewer';
 import { saveBase64Screenshot, saveAudioRecording } from './services/fileService';
+import { Server } from 'http';
 
 const prisma = new PrismaClient();
 
@@ -11,10 +12,10 @@ interface AuthenticatedWebSocket extends WebSocket {
   voiceInterviewer?: SimpleVoiceInterviewer;
 }
 
-export function setupWebSocketServer(port: number = 4001) {
-  const wss = new WebSocketServer({ port });
+export function setupWebSocketServer(server: Server) {
+  const wss = new WebSocketServer({ server });
 
-  console.log(`WebSocket server started on port ${port}`);
+  console.log(`WebSocket server started on HTTP server`);
 
   wss.on('connection', async (ws: AuthenticatedWebSocket, req) => {
     console.log('New WebSocket connection');

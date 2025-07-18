@@ -12,10 +12,13 @@ const app = express();
 app.use(cors({
   origin: [
     "http://localhost:3000", 
-    "https://your-frontend-app.vercel.app", // Replace with your actual Vercel URL
+    "https://apti-view.vercel.app", // Your actual Vercel URL
+    "https://aptiview.onrender.com", // Your backend URL (for health checks)
     process.env.FRONTEND_URL || "http://localhost:3000"
   ],
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }));
 app.use(express.json());
 
@@ -36,12 +39,11 @@ app.use('/api/users', userRoutes);
 app.use('/api/interviews', interviewRoutes);
 
 const PORT = process.env.PORT || 4000;
-const WS_PORT = process.env.WS_PORT || 4001;
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
-// Start WebSocket server for voice interviews
-setupWebSocketServer(Number(WS_PORT));
-console.log(`WebSocket server running on port ${WS_PORT}`);
+// Start WebSocket server on the same port as HTTP server
+setupWebSocketServer(server);
+console.log(`WebSocket server running on port ${PORT}`);
