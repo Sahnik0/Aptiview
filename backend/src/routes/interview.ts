@@ -2,7 +2,6 @@ import express, { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { requireClerkAuth, ClerkAuthRequest } from '../middleware/requireClerkAuth';
 import { v4 as uuidv4 } from 'uuid';
-import { sendInterviewInvitation, sendInterviewReport } from '../services/emailService';
 import { AIInterviewer } from '../services/aiInterviewer';
 import { VoiceInterviewer } from '../services/voiceInterviewer';
 import { saveBase64Screenshot } from '../services/fileService';
@@ -78,10 +77,11 @@ router.post('/schedule', requireClerkAuth, async (req: ClerkAuthRequest, res: Re
     const uniqueLink = uuidv4();
 
     // Create interview record
+    const now = new Date();
     const interview = await prisma.interview.create({
       data: {
         applicationId,
-        scheduledAt: new Date(scheduledAt),
+        scheduledAt: now, // Always use server time
         uniqueLink,
         isActive: false
       }
@@ -93,13 +93,7 @@ router.post('/schedule', requireClerkAuth, async (req: ClerkAuthRequest, res: Re
       data: { status: 'INTERVIEW_SCHEDULED' }
     });
 
-    // Send email notification
-    await sendInterviewInvitation(
-      user.email,
-      application.job.title,
-      new Date(scheduledAt),
-      `${process.env.FRONTEND_URL}/interview/${uniqueLink}`
-    );
+    // Email sending omitted in development (no SMTP credentials)
 
     res.status(201).json({
       interview,
@@ -418,14 +412,14 @@ router.post('/:uniqueLink/end', async (req: Request, res: Response) => {
     });
 
     // Send report to recruiter
-    await sendInterviewReport(
-      interview.application.job.recruiter.user.email,
-      interview.application.candidate.user.email,
-      interview.application.job.title,
-      aiAnalysis.summary,
-      [], // screenshots will be sent separately
-      recordingUrl || undefined
-    );
+    // await sendInterviewReport(
+    //   interview.application.job.recruiter.user.email,
+    //   interview.application.candidate.user.email,
+    //   interview.application.job.title,
+    //   aiAnalysis.summary,
+    //   [], // screenshots will be sent separately
+    //   recordingUrl || undefined
+    // );
 
     res.json({
       interview: updatedInterview,

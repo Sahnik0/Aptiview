@@ -83,7 +83,7 @@ Start by greeting the candidate and asking them to introduce themselves.
 
     try {
       const response = await openai.chat.completions.create({
-        model: "gpt-4",
+        model: "gpt-3.5-turbo",
         messages: this.conversationHistory,
         max_tokens: 200,
         temperature: 0.7,
@@ -159,7 +159,7 @@ Format your response as JSON with the following structure:
 
     try {
       const response = await openai.chat.completions.create({
-        model: "gpt-4",
+        model: "gpt-3.5-turbo",
         messages: [{ role: 'user', content: summaryPrompt }],
         max_tokens: 1000,
         temperature: 0.3,

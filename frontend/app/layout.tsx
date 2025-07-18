@@ -71,20 +71,20 @@ export default function RootLayout({
         <GlobalUserProvisioner />
         <RoleRedirector />
       </SignedIn>
-      <html lang="en" suppressHydrationWarning>
-        <body className={inter.className}>
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="light"
-            enableSystem
-            disableTransitionOnChange={false}
-            storageKey="talent-ai-theme"
-          >
-            <MainNavigation />
-            <div className="pt-16 bg-gray-50/50 dark:bg-gray-900 min-h-[calc(100vh-4rem)]">{children}</div>
-          </ThemeProvider>
-        </body>
-      </html>
+    <html lang="en" suppressHydrationWarning>
+      <body className={inter.className}>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="light"
+          enableSystem
+          disableTransitionOnChange={false}
+          storageKey="talent-ai-theme"
+        >
+          <MainNavigation />
+          <div className="pt-16 bg-gray-50/50 dark:bg-gray-900 min-h-[calc(100vh-4rem)]">{children}</div>
+        </ThemeProvider>
+      </body>
+    </html>
     </ClerkProvider>
   )
 }

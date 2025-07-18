@@ -32,6 +32,7 @@ export default function JobDetailClientPage() {
   const [job, setJob] = useState<Job | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [hasApplied, setHasApplied] = useState(false);
 
   useEffect(() => {
     const fetchJob = async () => {
@@ -63,6 +64,24 @@ export default function JobDetailClientPage() {
 
     fetchJob()
   }, [jobId, getToken])
+
+  // Check if already applied
+  useEffect(() => {
+    const checkIfApplied = async () => {
+      if (!jobId) return;
+      const token = await getToken();
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
+      const res = await fetch(`${backendUrl}/api/users/applications`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const applications = await res.json();
+        const applied = applications.some((app: any) => app.jobId === jobId);
+        setHasApplied(applied);
+      }
+    };
+    checkIfApplied();
+  }, [jobId, getToken]);
 
   if (loading) {
     return (
@@ -133,14 +152,23 @@ export default function JobDetailClientPage() {
               </ReactMarkdown>
             </div>
             <div className="flex flex-col sm:flex-row gap-4">
-              <Button
-                asChild
-                className="bg-black hover:bg-gray-800 text-lg py-6 flex-1 dark:bg-gray-100 dark:text-black dark:hover:bg-gray-200"
-              >
-                <Link href={`/candidate/apply?jobId=${job.id}&jobTitle=${encodeURIComponent(job.title)}`}>
-                  Apply Now <ArrowRight className="ml-2 h-5 w-5" />
-                </Link>
-              </Button>
+              {hasApplied ? (
+                <Button
+                  disabled
+                  className="bg-gray-400 cursor-not-allowed text-lg py-6 flex-1"
+                >
+                  Already Applied
+                </Button>
+              ) : (
+                <Button
+                  asChild
+                  className="bg-black hover:bg-gray-800 text-lg py-6 flex-1 dark:bg-gray-100 dark:text-black dark:hover:bg-gray-200"
+                >
+                  <Link href={`/candidate/apply?jobId=${job.id}&jobTitle=${encodeURIComponent(job.title)}`}>
+                    Apply Now <ArrowRight className="ml-2 h-5 w-5" />
+                  </Link>
+                </Button>
+              )}
               <Button
                 variant="outline"
                 onClick={() => router.push("/candidate/jobs")}

@@ -97,6 +97,7 @@ export default function CandidateDashboardPage() {
     
     return {
       id: app.id,
+      jobId: app.jobId, // Add jobId for easier lookup
       jobTitle: app.job?.title || "",
       company: app.job?.recruiter?.company || "",
       status: app.status?.replace(/_/g, " ") || "",
@@ -112,12 +113,14 @@ export default function CandidateDashboardPage() {
       } : null
     };
   });
+  const appliedJobIds = new Set(mappedApplications.map(app => app.jobId));
   const mappedJobs = availableJobs.map((job) => ({
     id: job.id,
     title: job.title,
     company: job.recruiter?.company || "",
     location: job.location || "",
     type: job.type || "",
+    alreadyApplied: appliedJobIds.has(job.id),
   }));
 
   return (
@@ -257,9 +260,9 @@ export default function CandidateDashboardPage() {
                     <TableRow>
                       <TableHead className="min-w-[120px]">Job Title</TableHead>
                       <TableHead className="min-w-[100px]">Company</TableHead>
-                      <TableHead className="min-w-[120px]">Location</TableHead>
+                      <TableHead className="min-w-[100px]">Location</TableHead>
                       <TableHead className="min-w-[80px]">Type</TableHead>
-                      <TableHead className="min-w-[100px]">Actions</TableHead>
+                      <TableHead className="min-w-[120px]">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -268,32 +271,15 @@ export default function CandidateDashboardPage() {
                         <TableCell className="font-medium text-gray-800">{job.title}</TableCell>
                         <TableCell className="text-gray-700">{job.company}</TableCell>
                         <TableCell className="text-gray-700">{job.location}</TableCell>
+                        <TableCell className="text-gray-700">{job.type}</TableCell>
                         <TableCell>
-                          <Badge variant="secondary" className="bg-gray-100 text-gray-600">
-                            {job.type}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              asChild
-                              className="bg-transparent border-gray-300 hover:bg-gray-50"
-                            >
-                              <Link href={`/candidate/jobs/${job.id}`}>View</Link>
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              asChild
-                              className="bg-black text-white hover:bg-gray-800"
-                            >
-                              <Link href={`/candidate/apply?jobId=${job.id}&jobTitle=${encodeURIComponent(job.title)}`}>
-                                Apply
-                              </Link>
-                            </Button>
-                          </div>
+                          {job.alreadyApplied ? (
+                            <Button disabled className="bg-gray-400 cursor-not-allowed">Already Applied</Button>
+                          ) : (
+                            <Link href={`/candidate/apply?jobId=${job.id}&jobTitle=${encodeURIComponent(job.title)}`}>
+                              <Button>Apply</Button>
+                            </Link>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}

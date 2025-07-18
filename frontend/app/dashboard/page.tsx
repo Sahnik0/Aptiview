@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { PlusCircle, Users, Briefcase, Eye, Calendar, MapPin, BarChart3, Trash2, Edit, Settings } from "lucide-react";
+import { PlusCircle, Users, Briefcase, Eye, Calendar, MapPin, BarChart3, Trash2, Edit, Settings, ChevronDown, ChevronUp } from "lucide-react";
 import { useAuth } from "@clerk/nextjs";
 import RecruiterInterviewDashboard from "@/components/RecruiterInterviewDashboard";
 
@@ -45,6 +45,8 @@ export default function RecruiterDashboard() {
   const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
   const [templates, setTemplates] = useState([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+  const [jobApplications, setJobApplications] = useState<Record<string, any[]>>({});
 
   useEffect(() => {
     fetchDashboardData();
@@ -327,8 +329,8 @@ export default function RecruiterDashboard() {
                 <CardDescription className="text-gray-600 dark:text-gray-400">
                   Manage and track your active job listings
                 </CardDescription>
-          </CardHeader>
-          <CardContent>
+            </CardHeader>
+            <CardContent>
             {jobs.length === 0 ? (
               <div className="text-center py-12">
                 <Briefcase className="h-12 w-12 text-gray-400 mx-auto mb-4" />
@@ -379,7 +381,7 @@ export default function RecruiterDashboard() {
                         <TableCell className="text-gray-600 dark:text-gray-400">
                           <div className="flex items-center">
                             <Users className="h-3 w-3 mr-1" />
-                            {job.applicantsCount || 0}
+                            {job._count?.applications ?? 0}
                           </div>
                         </TableCell>
                         <TableCell className="text-gray-600 dark:text-gray-400">
@@ -414,7 +416,7 @@ export default function RecruiterDashboard() {
                             >
                               <Trash2 className="h-3 w-3 mr-1" />
                               {deleteLoading === job.id ? 'Deleting...' : 'Delete'}
-                            </Button>
+                          </Button>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -423,8 +425,8 @@ export default function RecruiterDashboard() {
                 </Table>
               </div>
             )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
       </TabsContent>
 
       <TabsContent value="ai-settings">
@@ -480,7 +482,7 @@ export default function RecruiterDashboard() {
                     </CardContent>
                   </Card>
                 ))}
-              </div>
+            </div>
             )}
           </CardContent>
         </Card>
@@ -490,7 +492,7 @@ export default function RecruiterDashboard() {
         <RecruiterInterviewDashboard />
       </TabsContent>
     </Tabs>
-  </div>
-</div>
+      </div>
+    </div>
 );
 }

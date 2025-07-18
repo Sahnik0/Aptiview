@@ -63,6 +63,8 @@ interface InterviewResult {
     imageUrl: string;
     takenAt: string;
   }>;
+  recommendation?: string;
+  shouldProceed?: boolean;
 }
 
 export default function RecruiterInterviewDashboard() {
@@ -348,6 +350,32 @@ export default function RecruiterInterviewDashboard() {
                           <p className="text-sm text-gray-600">
                             {selectedInterview.weaknesses}
                           </p>
+                        </div>
+                      )}
+                      {selectedInterview.recommendation && (
+                        <div className="mt-4 flex items-center gap-3">
+                          <span className="font-semibold">AI Recommendation:</span>
+                          <span className={`px-3 py-1 rounded-full text-white font-bold text-sm ${
+                            selectedInterview.recommendation === 'Strong Hire' || selectedInterview.recommendation === 'Hire'
+                              ? 'bg-green-600'
+                              : selectedInterview.recommendation === 'No Hire' || selectedInterview.recommendation === 'Strong No Hire'
+                              ? 'bg-red-600'
+                              : 'bg-gray-400'
+                          }`}>
+                            {selectedInterview.recommendation}
+                          </span>
+                        </div>
+                      )}
+                      {typeof selectedInterview.shouldProceed !== 'undefined' && (
+                        <div className="mt-2 flex items-center gap-2">
+                          <span className="font-semibold">Should Proceed to Next Round:</span>
+                          <span className={`px-2 py-1 rounded text-xs font-bold ${selectedInterview.shouldProceed ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                            {selectedInterview.shouldProceed ? 'Yes' : 'No'}
+                          </span>
+                          <span className="ml-2 text-xs text-gray-500" title="AI is strict. Only candidates with strong performance in all areas are recommended to proceed.">
+                            <svg className="inline h-4 w-4 text-gray-400 mr-1" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                            AI is strict. Only strong candidates are recommended.
+                          </span>
                         </div>
                       )}
                     </TabsContent>

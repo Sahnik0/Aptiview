@@ -13,8 +13,10 @@ import { CheckCircle, Video, Calendar } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import ReactMarkdown from "react-markdown" // Import ReactMarkdown
 import remarkGfm from "remark-gfm" // Import remarkGfm for GitHub Flavored Markdown
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import '../../../node_modules/katex/dist/katex.min.css';
 import { useAuth } from "@clerk/nextjs"
-import InterviewScheduleModal from "@/components/InterviewScheduleModal"
 
 interface CandidateApplyClientPageProps {
   jobId?: string
@@ -39,8 +41,8 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
   const [loading, setLoading] = useState(false)
   const [jobLoading, setJobLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [showScheduleModal, setShowScheduleModal] = useState(false)
   const [applicationData, setApplicationData] = useState<any>(null)
+  const [interviewLink, setInterviewLink] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     fullName: "",
     email: "",
@@ -53,6 +55,7 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
   })
   const router = useRouter()
   const { getToken } = useAuth()
+  const [alreadyApplied, setAlreadyApplied] = useState(false);
 
   // Fetch job data when jobId is available
   useEffect(() => {
@@ -97,6 +100,25 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
     }
   }, [job, initialJobTitle])
 
+  // Check if already applied on mount
+  useEffect(() => {
+    if (isSubmitted) return; // Don't check if just submitted
+    async function checkIfAlreadyApplied() {
+      if (!jobId) return;
+      const token = await getToken();
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
+      const res = await fetch(`${backendUrl}/api/users/applications`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const applications = await res.json();
+        const applied = applications.some((app: any) => app.jobId === jobId);
+        setAlreadyApplied(applied);
+      }
+    }
+    checkIfAlreadyApplied();
+  }, [jobId, getToken, isSubmitted]);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
     setFormData((prev) => ({ ...prev, [name]: value }))
@@ -113,6 +135,11 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
     
     if (!job) {
       setError("Job information not found");
+      return;
+    }
+
+    if (alreadyApplied) {
+      setError("You have already applied to this job.");
       return;
     }
     
@@ -133,6 +160,11 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
       });
       
       if (!res.ok) {
+        if (res.status === 409) {
+          setError("You have already applied to this job.");
+          setAlreadyApplied(true);
+          return;
+        }
         const errText = await res.text();
         throw new Error(errText || "Failed to submit application");
       }
@@ -142,8 +174,25 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
         id: applicationResult.id,
         job: job
       });
+      // Immediately schedule interview for now
+      const interviewRes = await fetch(`${backendUrl}/api/interviews/schedule`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          applicationId: applicationResult.id,
+          scheduledAt: new Date().toISOString()
+        })
+      });
+      if (!interviewRes.ok) {
+        setError("Failed to schedule interview automatically.");
+        return;
+      }
+      const interviewData = await interviewRes.json();
+      setInterviewLink(interviewData.interviewLink);
       setIsSubmitted(true);
-      setShowScheduleModal(true);
     } catch (err: any) {
       setError(err.message || "Unknown error");
       console.error("Application submission error:", err);
@@ -192,56 +241,67 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
     )
   }
 
+  if (!isSubmitted && alreadyApplied) {
+    return (
+      <div className="min-h-screen bg-gray-50/50 p-4 sm:p-8 flex items-center justify-center dark:bg-gray-900">
+        <Card className="w-full max-w-md text-center shadow-lg bg-white dark:bg-gray-800 dark:border-gray-700">
+          <CardHeader>
+            <CardTitle className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+              Already Applied
+            </CardTitle>
+            <CardDescription className="text-gray-600 dark:text-gray-400">
+              You have already applied to this job. You cannot apply again.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button onClick={() => router.push("/candidate/dashboard")} className="w-full">
+              Go to Dashboard
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   if (isSubmitted) {
     return (
-      <>
-        <div className="min-h-screen bg-gray-50/50 p-4 sm:p-8 flex items-center justify-center dark:bg-gray-900">
-          <Card className="w-full max-w-md text-center shadow-lg bg-white dark:bg-gray-800 dark:border-gray-700">
-            <CardHeader>
-              <CheckCircle className="h-20 w-20 text-green-500 mx-auto mb-4" />
-              <CardTitle className="text-3xl font-bold text-gray-900 dark:text-gray-100">
-                Application Submitted!
-              </CardTitle>
-              <CardDescription className="text-gray-600 dark:text-gray-400">
-                Your application for the <span className="font-semibold">{displayJobTitle}</span> role is complete.
-                Now schedule your AI interview!
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
+      <div className="min-h-screen bg-gray-50/50 p-4 sm:p-8 flex items-center justify-center dark:bg-gray-900">
+        <Card className="w-full max-w-md text-center shadow-lg bg-white dark:bg-gray-800 dark:border-gray-700">
+          <CardHeader>
+            <CheckCircle className="h-20 w-20 text-green-500 mx-auto mb-4" />
+            <CardTitle className="text-3xl font-bold text-gray-900 dark:text-gray-100">
+              Application Submitted!
+            </CardTitle>
+            <CardDescription className="text-gray-600 dark:text-gray-400">
+              Your application for the <span className="font-semibold">{displayJobTitle}</span> role is complete.<br />
+              <span className="text-blue-700 dark:text-blue-300">Your AI interview is scheduled and valid for the next 24 hours.</span>
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {interviewLink && (
               <Button 
-                onClick={() => setShowScheduleModal(true)}
+                asChild
                 className="w-full bg-blue-600 hover:bg-blue-700 text-lg py-6"
               >
-                <Calendar className="h-5 w-5 mr-2" /> Schedule AI Interview
+                <a href={interviewLink} target="_blank" rel="noopener noreferrer">
+                  <Video className="h-5 w-5 mr-2" /> Join AI Interview
+                </a>
               </Button>
-              <Button 
-                variant="outline"
-                onClick={() => router.push("/candidate/dashboard")}
-                className="w-full"
-              >
-                Skip for Now - Go to Dashboard
-              </Button>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                You can schedule your interview later from your dashboard.
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-        
-        {applicationData && (
-          <InterviewScheduleModal
-            isOpen={showScheduleModal}
-            onClose={() => setShowScheduleModal(false)}
-            application={applicationData}
-            onScheduled={(interviewLink) => {
-              // You can handle the interview link here (maybe store it or show it)
-              console.log('Interview scheduled:', interviewLink);
-              router.push("/candidate/dashboard");
-            }}
-          />
-        )}
-      </>
-    )
+            )}
+            <Button 
+              variant="outline"
+              onClick={() => router.push("/candidate/dashboard")}
+              className="w-full"
+            >
+              Go to Dashboard
+            </Button>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              The interview link will expire 24 hours after scheduling.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   return (
@@ -262,7 +322,10 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
             {job ? (
               <ScrollArea className="h-[600px] pr-4">
                 <div className="prose max-w-none text-gray-700 leading-relaxed dark:text-gray-300 dark:prose-invert">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm, remarkMath]}
+                    rehypePlugins={[rehypeKatex]}
+                  >
                     {job.description}
                   </ReactMarkdown>
                 </div>
