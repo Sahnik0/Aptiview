@@ -56,9 +56,12 @@ export default function VoiceInterviewPage() {
   const connectWebSocket = useCallback(() => {
     try {
       const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
-      const wsUrl = backendUrl.replace(/^https?:\/\//, 'wss://').replace(/^http:\/\//, 'ws://') + '/interview/' + uniqueLink;
+      // Determine protocol based on current page
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      // Use backend host/port, but protocol based on current page
+      const url = new URL(backendUrl);
+      const wsUrl = `${wsProtocol}://${url.hostname}:${url.port || '4000'}/interview/${uniqueLink}`;
       console.log('Connecting to:', wsUrl);
-      
       wsRef.current = new WebSocket(wsUrl);
 
       wsRef.current.onopen = () => {

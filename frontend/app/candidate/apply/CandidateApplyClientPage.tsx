@@ -102,6 +102,7 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
 
   // Check if already applied on mount
   useEffect(() => {
+    if (isSubmitted) return; // Don't check if just submitted
     async function checkIfAlreadyApplied() {
       if (!jobId) return;
       const token = await getToken();
@@ -116,7 +117,7 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
       }
     }
     checkIfAlreadyApplied();
-  }, [jobId, getToken]);
+  }, [jobId, getToken, isSubmitted]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target

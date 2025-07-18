@@ -2,7 +2,6 @@ import express, { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { requireClerkAuth, ClerkAuthRequest } from '../middleware/requireClerkAuth';
 import { v4 as uuidv4 } from 'uuid';
-import { sendInterviewInvitation, sendInterviewReport } from '../services/emailService';
 import { AIInterviewer } from '../services/aiInterviewer';
 import { VoiceInterviewer } from '../services/voiceInterviewer';
 import { saveBase64Screenshot } from '../services/fileService';
@@ -413,14 +412,14 @@ router.post('/:uniqueLink/end', async (req: Request, res: Response) => {
     });
 
     // Send report to recruiter
-    await sendInterviewReport(
-      interview.application.job.recruiter.user.email,
-      interview.application.candidate.user.email,
-      interview.application.job.title,
-      aiAnalysis.summary,
-      [], // screenshots will be sent separately
-      recordingUrl || undefined
-    );
+    // await sendInterviewReport(
+    //   interview.application.job.recruiter.user.email,
+    //   interview.application.candidate.user.email,
+    //   interview.application.job.title,
+    //   aiAnalysis.summary,
+    //   [], // screenshots will be sent separately
+    //   recordingUrl || undefined
+    // );
 
     res.json({
       interview: updatedInterview,

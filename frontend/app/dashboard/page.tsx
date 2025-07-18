@@ -329,8 +329,8 @@ export default function RecruiterDashboard() {
                 <CardDescription className="text-gray-600 dark:text-gray-400">
                   Manage and track your active job listings
                 </CardDescription>
-          </CardHeader>
-          <CardContent>
+            </CardHeader>
+            <CardContent>
             {jobs.length === 0 ? (
               <div className="text-center py-12">
                 <Briefcase className="h-12 w-12 text-gray-400 mx-auto mb-4" />
@@ -416,7 +416,7 @@ export default function RecruiterDashboard() {
                             >
                               <Trash2 className="h-3 w-3 mr-1" />
                               {deleteLoading === job.id ? 'Deleting...' : 'Delete'}
-                            </Button>
+                          </Button>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -425,8 +425,8 @@ export default function RecruiterDashboard() {
                 </Table>
               </div>
             )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
       </TabsContent>
 
       <TabsContent value="ai-settings">
@@ -482,7 +482,7 @@ export default function RecruiterDashboard() {
                     </CardContent>
                   </Card>
                 ))}
-              </div>
+            </div>
             )}
           </CardContent>
         </Card>
@@ -492,7 +492,7 @@ export default function RecruiterDashboard() {
         <RecruiterInterviewDashboard />
       </TabsContent>
     </Tabs>
-  </div>
-</div>
+      </div>
+    </div>
 );
 }
