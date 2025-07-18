@@ -449,6 +449,7 @@ Keep your response conversational and under 50 words.`;
     strengths: string[];
     weaknesses: string[];
     recommendation: string;
+    shouldProceed: boolean;
   }> {
     const fullTranscript = this.transcript
       .map(msg => `${msg.role.toUpperCase()}: ${msg.content}`)
@@ -462,6 +463,8 @@ Instructions:
 - Your response MUST be a valid JSON object, with no extra text, no apologies, and no explanations.
 - Do NOT include any introductory or closing remarks—just the JSON.
 - If you are unsure about any value, make your best inference from the transcript context.
+- Only recommend 'Hire' or 'Strong Hire' if the candidate is clearly above average (7+/10) in ALL categories. Otherwise, recommend 'No Hire' or 'Strong No Hire'.
+- Add a boolean field 'shouldProceed': true if recommendation is 'Hire' or 'Strong Hire', false otherwise.
 
 Format your response as:
 {
@@ -474,7 +477,8 @@ Format your response as:
   },
   "strengths": ["...", "...", "..."],
   "weaknesses": ["...", "...", "..."],
-  "recommendation": "Strong Hire" | "Hire" | "No Hire" | "Strong No Hire"
+  "recommendation": "Strong Hire" | "Hire" | "No Hire" | "Strong No Hire",
+  "shouldProceed": true | false
 }
 
 TRANSCRIPT:
@@ -496,7 +500,11 @@ REMEMBER: Output ONLY valid JSON. Do NOT add any extra text, apologies, or expla
       if (!content) throw new Error('No response from OpenAI');
 
       try {
-        return JSON.parse(content);
+        const parsedContent = JSON.parse(content);
+        return {
+          ...parsedContent,
+          shouldProceed: parsedContent.recommendation === 'Hire' || parsedContent.recommendation === 'Strong Hire'
+        };
       } catch (err) {
         console.error('Error parsing AI summary:', err, content);
         return {
@@ -509,7 +517,8 @@ REMEMBER: Output ONLY valid JSON. Do NOT add any extra text, apologies, or expla
           },
           strengths: [],
           weaknesses: [],
-          recommendation: 'No Recommendation'
+          recommendation: 'No Recommendation',
+          shouldProceed: false
         };
       }
     } catch (error) {
