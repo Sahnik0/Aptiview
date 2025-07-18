@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { PlusCircle, Users, Briefcase, Eye, Calendar, MapPin, BarChart3, Trash2, Edit, Settings } from "lucide-react";
+import { PlusCircle, Users, Briefcase, Eye, Calendar, MapPin, BarChart3, Trash2, Edit, Settings, ChevronDown, ChevronUp } from "lucide-react";
 import { useAuth } from "@clerk/nextjs";
 import RecruiterInterviewDashboard from "@/components/RecruiterInterviewDashboard";
 
@@ -45,6 +45,8 @@ export default function RecruiterDashboard() {
   const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
   const [templates, setTemplates] = useState([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+  const [jobApplications, setJobApplications] = useState<Record<string, any[]>>({});
 
   useEffect(() => {
     fetchDashboardData();
@@ -379,7 +381,7 @@ export default function RecruiterDashboard() {
                         <TableCell className="text-gray-600 dark:text-gray-400">
                           <div className="flex items-center">
                             <Users className="h-3 w-3 mr-1" />
-                            {job.applicantsCount || 0}
+                            {job._count?.applications ?? 0}
                           </div>
                         </TableCell>
                         <TableCell className="text-gray-600 dark:text-gray-400">
