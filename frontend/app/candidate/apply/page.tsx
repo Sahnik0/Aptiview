@@ -7,13 +7,10 @@ export const metadata: Metadata = {
   keywords: ["job application", "apply for job", "Aptiview application"],
 }
 
-export default function CandidateApplyPage({
-  searchParams,
-}: {
-  searchParams: { jobId?: string; jobTitle?: string }
-}) {
-  const jobId = searchParams.jobId
-  const jobTitle = searchParams.jobTitle ? decodeURIComponent(searchParams.jobTitle) : undefined
+export default async function CandidateApplyPage(props: { searchParams: { jobId?: string; jobTitle?: string } }) {
+  const { searchParams } = props;
+  const jobId = searchParams.jobId;
+  const jobTitle = searchParams.jobTitle ? decodeURIComponent(searchParams.jobTitle) : undefined;
 
-  return <CandidateApplyClientPage jobId={jobId} initialJobTitle={jobTitle} />
+  return <CandidateApplyClientPage jobId={jobId} initialJobTitle={jobTitle} />;
 }

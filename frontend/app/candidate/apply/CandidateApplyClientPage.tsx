@@ -53,6 +53,7 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
   })
   const router = useRouter()
   const { getToken } = useAuth()
+  const [alreadyApplied, setAlreadyApplied] = useState(false);
 
   // Fetch job data when jobId is available
   useEffect(() => {
@@ -97,6 +98,24 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
     }
   }, [job, initialJobTitle])
 
+  // Check if already applied on mount
+  useEffect(() => {
+    async function checkIfAlreadyApplied() {
+      if (!jobId) return;
+      const token = await getToken();
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
+      const res = await fetch(`${backendUrl}/api/users/applications`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const applications = await res.json();
+        const applied = applications.some((app: any) => app.jobId === jobId);
+        setAlreadyApplied(applied);
+      }
+    }
+    checkIfAlreadyApplied();
+  }, [jobId, getToken]);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
     setFormData((prev) => ({ ...prev, [name]: value }))
@@ -113,6 +132,11 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
     
     if (!job) {
       setError("Job information not found");
+      return;
+    }
+
+    if (alreadyApplied) {
+      setError("You have already applied to this job.");
       return;
     }
     
@@ -133,6 +157,11 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
       });
       
       if (!res.ok) {
+        if (res.status === 409) {
+          setError("You have already applied to this job.");
+          setAlreadyApplied(true);
+          return;
+        }
         const errText = await res.text();
         throw new Error(errText || "Failed to submit application");
       }
@@ -190,6 +219,28 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
         </Card>
       </div>
     )
+  }
+
+  if (alreadyApplied) {
+    return (
+      <div className="min-h-screen bg-gray-50/50 p-4 sm:p-8 flex items-center justify-center dark:bg-gray-900">
+        <Card className="w-full max-w-md text-center shadow-lg bg-white dark:bg-gray-800 dark:border-gray-700">
+          <CardHeader>
+            <CardTitle className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+              Already Applied
+            </CardTitle>
+            <CardDescription className="text-gray-600 dark:text-gray-400">
+              You have already applied to this job. You cannot apply again.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button onClick={() => router.push("/candidate/dashboard")} className="w-full">
+              Go to Dashboard
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   if (isSubmitted) {
