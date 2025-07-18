@@ -90,6 +90,7 @@ export function setupWebSocketServer(server: Server) {
       ws.interviewId = interview.id;
 
       // Initialize voice interviewer
+      // Use email prefix as candidate name (schema does not have name/fullName)
       const candidateName = interview.application.candidate.user.email.split('@')[0];
       ws.voiceInterviewer = new SimpleVoiceInterviewer({
         jobTitle: interview.application.job.title,
