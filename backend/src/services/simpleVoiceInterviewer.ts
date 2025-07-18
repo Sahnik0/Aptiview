@@ -210,7 +210,7 @@ Keep your response conversational and under 50 words.`;
 
     try {
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'gpt-3.5-turbo',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.8, // Higher temperature for more natural responses
         max_tokens: 100
@@ -444,7 +444,28 @@ Keep your response conversational and under 50 words.`;
       .map(msg => `${msg.role.toUpperCase()}: ${msg.content}`)
       .join('\n');
 
-    const prompt = `Based on this interview transcript for the position of ${this.config.jobTitle}, provide a comprehensive analysis:
+    const prompt = `You are an expert AI interview analyst. Based on the following transcript and job description, generate a comprehensive JSON summary. 
+
+Instructions:
+- Carefully analyze the transcript and job description.
+- Infer all values (summary, scores, strengths, weaknesses, recommendation) from the content provided.
+- Your response MUST be a valid JSON object, with no extra text, no apologies, and no explanations.
+- Do NOT include any introductory or closing remarks—just the JSON.
+- If you are unsure about any value, make your best inference from the transcript context.
+
+Format your response as:
+{
+  "summary": "...",
+  "scores": {
+    "communication": <number 1-10>,
+    "technical": <number 1-10>,
+    "problemSolving": <number 1-10>,
+    "culturalFit": <number 1-10>
+  },
+  "strengths": ["...", "...", "..."],
+  "weaknesses": ["...", "...", "..."],
+  "recommendation": "Strong Hire" | "Hire" | "No Hire" | "Strong No Hire"
+}
 
 TRANSCRIPT:
 ${fullTranscript}
@@ -452,30 +473,11 @@ ${fullTranscript}
 JOB DESCRIPTION:
 ${this.config.jobDescription}
 
-Please provide:
-1. A detailed summary of the candidate's responses and performance
-2. Scores (1-10) for: Communication, Technical Skills, Problem Solving, Cultural Fit
-3. Top 3 strengths
-4. Top 3 areas for improvement
-5. Hiring recommendation (Strong Hire, Hire, No Hire, Strong No Hire)
-
-Format as JSON:
-{
-  "summary": "detailed summary",
-  "scores": {
-    "communication": 8,
-    "technical": 7,
-    "problemSolving": 9,
-    "culturalFit": 8
-  },
-  "strengths": ["strength1", "strength2", "strength3"],
-  "weaknesses": ["weakness1", "weakness2", "weakness3"],
-  "recommendation": "Hire"
-}`;
+REMEMBER: Output ONLY valid JSON. Do NOT add any extra text, apologies, or explanations.`;
 
     try {
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'gpt-3.5-turbo',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.1
       });
@@ -483,7 +485,23 @@ Format as JSON:
       const content = response.choices[0]?.message?.content;
       if (!content) throw new Error('No response from OpenAI');
 
-      return JSON.parse(content);
+      try {
+        return JSON.parse(content);
+      } catch (err) {
+        console.error('Error parsing AI summary:', err, content);
+        return {
+          summary: 'Summary could not be generated due to an AI response error.',
+          scores: {
+            communication: 0,
+            technical: 0,
+            problemSolving: 0,
+            culturalFit: 0
+          },
+          strengths: [],
+          weaknesses: [],
+          recommendation: 'No Recommendation'
+        };
+      }
     } catch (error) {
       console.error('Error generating summary:', error);
       throw error;

@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Mic, MicOff, Camera, CameraOff, Phone, PhoneOff } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 interface TranscriptMessage {
   role: 'assistant' | 'user';
@@ -42,6 +43,8 @@ export default function VoiceInterviewPage() {
   const [error, setError] = useState<string | null>(null);
   const [isInterviewEnded, setIsInterviewEnded] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [showPermissionModal, setShowPermissionModal] = useState(true);
+  const [permissionError, setPermissionError] = useState<string | null>(null);
 
   // Refs
   const wsRef = useRef<WebSocket | null>(null);
@@ -389,17 +392,23 @@ export default function VoiceInterviewPage() {
     }
   }, []);
 
-  // Start interview
-  const startInterview = async () => {
-    await initializeMedia();
-    setIsInterviewActive(true);
-
-    // Start screenshot capture interval
-    if (interviewData?.screenshotInterval) {
-      screenshotIntervalRef.current = setInterval(
-        captureScreenshot,
-        interviewData.screenshotInterval * 1000
-      );
+  // New: Permission and start flow
+  const handleAllowAndStart = async () => {
+    setPermissionError(null);
+    try {
+      await initializeMedia();
+      connectWebSocket();
+      setShowPermissionModal(false);
+      setIsInterviewActive(true);
+      // Start screenshot capture interval
+      if (interviewData?.screenshotInterval) {
+        screenshotIntervalRef.current = setInterval(
+          captureScreenshot,
+          interviewData.screenshotInterval * 1000
+        );
+      }
+    } catch (err: any) {
+      setPermissionError(err?.message || 'Failed to access camera/microphone. Please try again.');
     }
   };
 
@@ -445,10 +454,8 @@ export default function VoiceInterviewPage() {
     }
   };
 
-  // Initialize on mount
+  // Cleanup on unmount
   useEffect(() => {
-    connectWebSocket();
-
     return () => {
       if (wsRef.current) {
         wsRef.current.close();
@@ -460,7 +467,7 @@ export default function VoiceInterviewPage() {
         mediaStreamRef.current.getTracks().forEach(track => track.stop());
       }
     };
-  }, [connectWebSocket]);
+  }, []);
 
   if (error) {
     return (
@@ -506,164 +513,180 @@ export default function VoiceInterviewPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <Card className="mb-6">
-          <CardHeader>
-            <div className="flex justify-between items-center">
-              <div>
-                <CardTitle className="text-2xl">
-                  {interviewData?.job.title || 'AI Interview'}
-                </CardTitle>
-                <p className="text-gray-600">
-                  {interviewData?.job.recruiter.company || 'Company Interview'}
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <Badge variant={isConnected ? 'default' : 'secondary'}>
-                  {isConnected ? 'Connected' : 'Connecting...'}
-                </Badge>
-                {isInterviewActive && (
-                  <Badge variant="default" className="bg-red-600">
-                    Recording
-                  </Badge>
-                )}
-              </div>
-            </div>
-          </CardHeader>
-        </Card>
+    <>
+      <Dialog open={showPermissionModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Start Your AI Interview</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-gray-700">To begin, please allow camera and microphone access. This is required for the AI interview process.</p>
+            {permissionError && (
+              <Alert>
+                <AlertDescription>{permissionError}</AlertDescription>
+              </Alert>
+            )}
+            <Button
+              className="w-full bg-green-600 hover:bg-green-700"
+              onClick={handleAllowAndStart}
+              disabled={isInterviewActive}
+            >
+              Allow & Start Interview
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => router.push('/candidate/dashboard')}
+            >
+              Cancel
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Video Feed */}
-          <div className="lg:col-span-2">
-            <Card>
+      {!showPermissionModal && (
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+          <div className="max-w-6xl mx-auto">
+            {/* Header */}
+            <Card className="mb-6">
               <CardHeader>
-                <CardTitle>Video Feed</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="relative bg-black rounded-lg overflow-hidden aspect-video">
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    muted
-                    playsInline
-                    className="w-full h-full object-cover"
-                  />
-                  {!isCameraEnabled && (
-                    <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
-                      <CameraOff className="w-12 h-12 text-gray-400" />
-                    </div>
-                  )}
+                <div className="flex justify-between items-center">
+                  <div>
+                    <CardTitle className="text-2xl">
+                      {interviewData?.job.title || 'AI Interview'}
+                    </CardTitle>
+                    <p className="text-gray-600">
+                      {interviewData?.job.recruiter.company || 'Company Interview'}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Badge variant={isConnected ? 'default' : 'secondary'}>
+                      {isConnected ? 'Connected' : 'Connecting...'}
+                    </Badge>
+                    {isInterviewActive && (
+                      <Badge variant="default" className="bg-red-600">
+                        Recording
+                      </Badge>
+                    )}
+                  </div>
                 </div>
-                
-                {/* Controls */}
-                <div className="flex justify-center gap-4 mt-4">
-                  <Button
-                    variant={isMicEnabled ? 'default' : 'destructive'}
-                    size="lg"
-                    onClick={toggleMicrophone}
-                    disabled={!isInterviewActive}
-                  >
-                    {isMicEnabled ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
-                  </Button>
-                  
-                  <Button
-                    variant={isCameraEnabled ? 'default' : 'destructive'}
-                    size="lg"
-                    onClick={toggleCamera}
-                    disabled={!isInterviewActive}
-                  >
-                    {isCameraEnabled ? <Camera className="w-5 h-5" /> : <CameraOff className="w-5 h-5" />}
-                  </Button>
+              </CardHeader>
+            </Card>
 
-                  {!isInterviewActive ? (
-                    <Button
-                      size="lg"
-                      onClick={startInterview}
-                      disabled={!isConnected}
-                      className="bg-green-600 hover:bg-green-700"
-                    >
-                      <Phone className="w-5 h-5 mr-2" />
-                      Start Interview
-                    </Button>
-                  ) : (
-                    <>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Video Feed */}
+              <div className="lg:col-span-2">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Video Feed</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="relative bg-black rounded-lg overflow-hidden aspect-video">
+                      <video
+                        ref={videoRef}
+                        autoPlay
+                        muted
+                        playsInline
+                        className="w-full h-full object-cover"
+                      />
+                      {!isCameraEnabled && (
+                        <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
+                          <CameraOff className="w-12 h-12 text-gray-400" />
+                        </div>
+                      )}
+                    </div>
+                    {/* Controls */}
+                    <div className="flex justify-center gap-4 mt-4">
                       <Button
+                        variant={isMicEnabled ? 'default' : 'destructive'}
                         size="lg"
-                        onClick={isRecording ? stopRecording : startRecording}
-                        variant={isRecording ? 'destructive' : 'default'}
-                        disabled={!isMicEnabled}
+                        onClick={toggleMicrophone}
+                        disabled={!isInterviewActive}
                       >
-                        {isRecording ? 'Stop Speaking' : 'Start Speaking'}
+                        {isMicEnabled ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
                       </Button>
-                      
+                      <Button
+                        variant={isCameraEnabled ? 'default' : 'destructive'}
+                        size="lg"
+                        onClick={toggleCamera}
+                        disabled={!isInterviewActive}
+                      >
+                        {isCameraEnabled ? <Camera className="w-5 h-5" /> : <CameraOff className="w-5 h-5" />}
+                      </Button>
+                      {/* Start/Stop Speaking Controls */}
+                      {isInterviewActive && (
+                        <Button
+                          size="lg"
+                          onClick={isRecording ? stopRecording : startRecording}
+                          variant={isRecording ? 'destructive' : 'default'}
+                          disabled={!isMicEnabled}
+                        >
+                          {isRecording ? 'Stop Speaking' : 'Start Speaking'}
+                        </Button>
+                      )}
                       {isRecording && (
                         <p className="text-sm text-blue-600 text-center">
                           🎤 Recording... Speak clearly for 3+ seconds, then click Stop
                         </p>
                       )}
-                      
                       {!isRecording && isInterviewActive && (
                         <p className="text-sm text-gray-600 text-center">
                           Click "Start Speaking" to record your response (3+ seconds minimum)
                         </p>
                       )}
-                      
                       <Button
                         size="lg"
                         onClick={endInterview}
                         variant="destructive"
+                        disabled={!isInterviewActive}
                       >
                         <PhoneOff className="w-5 h-5 mr-2" />
                         End Interview
                       </Button>
-                    </>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Transcript */}
-          <div>
-            <Card className="h-[600px]">
-              <CardHeader>
-                <CardTitle>Interview Transcript</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-[500px] overflow-y-auto space-y-4">
-                  {transcript.length === 0 ? (
-                    <div className="text-center text-gray-500 mt-8">
-                      <p>Interview transcript will appear here</p>
-                      <p className="text-sm mt-2">Start the interview to begin</p>
                     </div>
-                  ) : (
-                    transcript.map((message, index) => (
-                      <div
-                        key={index}
-                        className={`p-3 rounded-lg ${
-                          message.role === 'assistant'
-                            ? 'bg-blue-50 border-l-4 border-blue-500'
-                            : 'bg-gray-50 border-l-4 border-gray-500'
-                        }`}
-                      >
-                        <div className="font-semibold text-sm mb-1">
-                          {message.role === 'assistant' ? 'AI Interviewer' : 'You'}
+                  </CardContent>
+                </Card>
+              </div>
+              {/* Transcript */}
+              <div>
+                <Card className="h-[600px]">
+                  <CardHeader>
+                    <CardTitle>Interview Transcript</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-[500px] overflow-y-auto space-y-4">
+                      {transcript.length === 0 ? (
+                        <div className="text-center text-gray-500 mt-8">
+                          <p>Interview transcript will appear here</p>
+                          <p className="text-sm mt-2">Start the interview to begin</p>
                         </div>
-                        <p className="text-sm">{message.content}</p>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+                      ) : (
+                        transcript.map((message, index) => (
+                          <div
+                            key={index}
+                            className={`p-3 rounded-lg ${
+                              message.role === 'assistant'
+                                ? 'bg-blue-50 border-l-4 border-blue-500'
+                                : 'bg-gray-50 border-l-4 border-gray-500'
+                            }`}
+                          >
+                            <div className="font-semibold text-sm mb-1">
+                              {message.role === 'assistant' ? 'AI Interviewer' : 'You'}
+                            </div>
+                            <p className="text-sm">{message.content}</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+            {/* Hidden audio element for AI responses */}
+            <audio ref={audioRef} className="hidden" />
           </div>
         </div>
-
-        {/* Hidden audio element for AI responses */}
-        <audio ref={audioRef} className="hidden" />
-      </div>
-    </div>
+      )}
+    </>
   );
 }

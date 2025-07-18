@@ -49,7 +49,7 @@ Start by greeting the candidate${this.config.candidateName ? ` (${this.config.ca
   async startInterview(): Promise<void> {
     try {
       // Connect to WebSocket
-      this.ws = new WebSocket(`wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01`, {
+      this.ws = new WebSocket(`wss://api.openai.com/v1/realtime?model=gpt-3.5-turbo`, {
         headers: {
           'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
           'OpenAI-Beta': 'realtime=v1'
@@ -263,7 +263,7 @@ Format as JSON:
 
     try {
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'gpt-3.5-turbo',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.1
       });
