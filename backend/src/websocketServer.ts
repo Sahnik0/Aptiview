@@ -23,13 +23,13 @@ export function setupWebSocketServer(server: Server) {
     let interviewEndTime: Date;
 
     // Define the function FIRST so it is available everywhere in this scope
-    function endInterviewWithConclusion() {
+  function endInterviewWithConclusion() {
       if (ws.voiceInterviewer && ws.interviewId) {
         ws.voiceInterviewer.processUserResponse('[system:conclude]', 0); // Pass 0 seconds left
         setTimeout(async () => {
           try {
             // Generate final summary (for backend only)
-            const summary = await ws.voiceInterviewer!.generateFinalSummary();
+      const summary = await ws.voiceInterviewer!.generateFinalSummary(proctorEvents);
             const transcript = ws.voiceInterviewer!.getTranscript();
             await prisma.interview.update({
               where: { id: ws.interviewId },
@@ -50,7 +50,9 @@ export function setupWebSocketServer(server: Server) {
       }
     }
 
-    console.log('New WebSocket connection');
+  console.log('New WebSocket connection');
+  // Track proctoring events for scoring adjustments
+  let proctorEvents: Array<{event: string; at: number}> = [];
 
     // Extract unique link from URL
     const url = new URL(req.url!, `http://${req.headers.host}`);
@@ -344,12 +346,23 @@ export function setupWebSocketServer(server: Server) {
             }
             break;
 
-          case 'end-interview':
+          case 'proctor-event':
+            if (ws.interviewId && message.event) {
+              try {
+                proctorEvents.push({ event: String(message.event), at: Number(message.at || Date.now()) });
+                // Optionally, also persist as a screenshot note in future (schema change needed)
+              } catch (e) {
+                // ignore
+              }
+            }
+            break;
+
+      case 'end-interview':
             // End the interview
             if (ws.voiceInterviewer && ws.interviewId) {
               try {
                 // Generate final summary
-                const summary = await ws.voiceInterviewer!.generateFinalSummary();
+        const summary = await ws.voiceInterviewer!.generateFinalSummary(proctorEvents);
                 const transcript = ws.voiceInterviewer!.getTranscript();
 
                 // Update interview with results

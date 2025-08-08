@@ -80,6 +80,7 @@ export default function VoiceInterviewPage() {
   const closedEyesCounterRef = useRef(0);
   const [proctorWarning, setProctorWarning] = useState<string | null>(null);
   const [eyeTrackingAvailable, setEyeTrackingAvailable] = useState(false);
+  const [terminatedByFullscreen, setTerminatedByFullscreen] = useState(false);
 
   // Ensure TFJS backend is initialized once with fallbacks
   const ensureTFReady = useCallback(async () => {
@@ -439,8 +440,8 @@ export default function VoiceInterviewPage() {
     }
   };
 
-  // Screenshot capture
-  const captureScreenshot = useCallback(() => {
+  // Screenshot capture (optional reason for proctoring)
+  const captureScreenshot = useCallback((reason?: string) => {
     if (videoRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
       const canvas = document.createElement('canvas');
       const context = canvas.getContext('2d');
@@ -454,7 +455,8 @@ export default function VoiceInterviewPage() {
         
         wsRef.current.send(JSON.stringify({
           type: 'screenshot',
-          imageData: imageData.split(',')[1] // Remove data:image/jpeg;base64, prefix
+    imageData: imageData.split(',')[1], // Remove data:image/jpeg;base64, prefix
+    reason: reason || undefined
         }));
       }
     }
@@ -492,6 +494,12 @@ export default function VoiceInterviewPage() {
           return { x: bb.x, y: bb.y, width: bb.width, height: bb.height };
         });
         if (!detectorInfo) setDetectorInfo('FaceDetector (native)');
+        if (faceCount <= 1 && boxes.length > 1) {
+          captureScreenshot('multiple-faces');
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: 'proctor-event', event: 'multiple-faces', at: Date.now() }));
+          }
+        }
         setFaceCount(boxes.length);
         drawOverlay(boxes);
         return;
@@ -511,6 +519,12 @@ export default function VoiceInterviewPage() {
             return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
           });
           if (!detectorInfo) setDetectorInfo('BlazeFace (TFJS)');
+          if (faceCount <= 1 && preds.length > 1) {
+            captureScreenshot('multiple-faces');
+            if (wsRef.current?.readyState === WebSocket.OPEN) {
+              wsRef.current.send(JSON.stringify({ type: 'proctor-event', event: 'multiple-faces', at: Date.now() }));
+            }
+          }
           setFaceCount(preds.length);
           drawOverlay(boxes);
           return;
@@ -532,14 +546,21 @@ export default function VoiceInterviewPage() {
           return { x: minX, y: minY, width: Math.max(0, maxX - minX), height: Math.max(0, maxY - minY) };
         });
         if (!detectorInfo) setDetectorInfo(faceMeshRuntimeRef.current === 'mediapipe' ? 'FaceMesh (Mediapipe)' : 'FaceMesh (TFJS)');
-        setFaceCount((preds || []).length);
+        const count = (preds || []).length;
+        if (faceCount <= 1 && count > 1) {
+          captureScreenshot('multiple-faces');
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: 'proctor-event', event: 'multiple-faces', at: Date.now() }));
+          }
+        }
+        setFaceCount(count);
         drawOverlay(boxes);
         return;
       }
     } catch (e) {
       // Detection errors are non-fatal; do not spam the UI
     }
-  }, [detectorInfo]);
+  }, [detectorInfo, faceCount, captureScreenshot]);
 
   // (Removed face-api.js fallback and gating helper)
 
@@ -675,15 +696,10 @@ export default function VoiceInterviewPage() {
     };
   }, [isInterviewActive, isInterviewEnded]);
 
-  // Start screenshot + face detection intervals when interview is active
+  // Start face detection interval when interview is active (screenshots occur only on violations)
   useEffect(() => {
   if (!isInterviewActive) return;
-
-    // Start screenshot interval based on backend-configured interval or default 10s
-    const intervalSec = interviewData?.screenshotInterval && interviewData.screenshotInterval > 0 ? interviewData.screenshotInterval : 10;
-    if (!screenshotIntervalRef.current) {
-      screenshotIntervalRef.current = setInterval(captureScreenshot, intervalSec * 1000);
-    }
+    // No periodic screenshots
     // If FaceMesh eye tracking is active, skip extra face-detect polling to reduce load
     if (!detectorReadyRef.current && !faceDetectIntervalRef.current) {
       faceDetectIntervalRef.current = setInterval(detectFaces, 800);
@@ -797,7 +813,15 @@ export default function VoiceInterviewPage() {
         const centerish = (r: number) => r > 0.28 && r < 0.72;
         const centered = centerish(hRatioL) && centerish(hRatioR) && vRatioL > 0.25 && vRatioL < 0.75 && vRatioR > 0.25 && vRatioR < 0.75;
         if (!centered) offScreenCounterRef.current++; else offScreenCounterRef.current = 0;
-        setGazeOff(offScreenCounterRef.current > 20);
+        const nowOff = offScreenCounterRef.current > 20;
+        const wasOff = gazeOff;
+        setGazeOff(nowOff);
+        if (!wasOff && nowOff) {
+          captureScreenshot('gaze-off-screen');
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: 'proctor-event', event: 'gaze-off-screen', at: Date.now() }));
+          }
+        }
         // Draw minimal iris overlay
         ctx.fillStyle = '#10b981';
         ctx.beginPath(); ctx.arc(L_IRIS[0], L_IRIS[1], 3, 0, Math.PI*2); ctx.fill();
@@ -806,9 +830,9 @@ export default function VoiceInterviewPage() {
     };
   raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [isInterviewActive]);
+  }, [isInterviewActive, gazeOff, captureScreenshot]);
 
-  // Require fullscreen and tab focus during interview (non-fatal warnings)
+  // Require fullscreen and tab focus; terminate if leaving fullscreen
   useEffect(() => {
     if (!isInterviewActive) return;
     const requireFull = async () => {
@@ -828,7 +852,14 @@ export default function VoiceInterviewPage() {
     };
     const fsHandler = () => {
       if (!document.fullscreenElement) {
-        setProctorWarning('Please keep the interview in fullscreen.');
+        setProctorWarning('Interview terminated: left fullscreen.');
+        setTerminatedByFullscreen(true);
+        if (wsRef.current) {
+          try { wsRef.current.close(1000, 'Left fullscreen'); } catch {}
+        }
+        if (screenshotIntervalRef.current) { clearInterval(screenshotIntervalRef.current); screenshotIntervalRef.current = null; }
+        if (faceDetectIntervalRef.current) { clearInterval(faceDetectIntervalRef.current); faceDetectIntervalRef.current = null; }
+        setIsInterviewActive(false);
       } else {
         setProctorWarning(null);
       }
@@ -842,6 +873,19 @@ export default function VoiceInterviewPage() {
       window.removeEventListener('blur', visHandler);
     };
   }, [isInterviewActive]);
+
+  const restartInterview = async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen().catch(() => {});
+      }
+      setTerminatedByFullscreen(false);
+      setIsInterviewEnded(false);
+      setTimeLeft(10 * 60);
+      connectWebSocket();
+      setIsInterviewActive(true);
+    } catch {}
+  };
 
   // Format timer mm:ss
   const formatTime = (seconds: number) => {
@@ -928,6 +972,17 @@ export default function VoiceInterviewPage() {
       {!showPermissionModal && (
         <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
           <div className="max-w-6xl mx-auto">
+            {terminatedByFullscreen && (
+              <Card className="mb-4 border-red-300 bg-red-50">
+                <CardHeader>
+                  <CardTitle className="text-red-700">Interview terminated</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="mb-3 text-red-700">You exited fullscreen. The session was terminated. You can restart the interview now.</p>
+                  <Button onClick={restartInterview} className="bg-red-600 hover:bg-red-700">Restart Interview</Button>
+                </CardContent>
+              </Card>
+            )}
             {/* Header */}
             <Card className="mb-6">
               <CardHeader>

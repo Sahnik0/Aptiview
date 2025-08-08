@@ -443,7 +443,7 @@ Keep your response conversational and under 50 words.`;
     return this.transcript;
   }
 
-  async generateFinalSummary(): Promise<{
+  async generateFinalSummary(proctorEvents?: Array<{event: string; at: number}>): Promise<{
     summary: string;
     scores: {
       communication: number;
@@ -506,6 +506,26 @@ REMEMBER: Output ONLY valid JSON. Do NOT add any extra text, apologies, or expla
 
       try {
         const parsedContent = JSON.parse(content);
+        // Apply proctoring deductions if present
+        if (proctorEvents && Array.isArray(proctorEvents) && proctorEvents.length > 0) {
+          const violations = {
+            multipleFaces: proctorEvents.filter(e => e.event === 'multiple-faces').length,
+            gazeOff: proctorEvents.filter(e => e.event === 'gaze-off-screen').length,
+          };
+          const totalDeductions = Math.min(3, violations.multipleFaces) * 0.5 + Math.min(3, violations.gazeOff) * 0.25;
+          const applyDeduction = (v: number) => Math.max(1, Math.round((v - totalDeductions) * 10) / 10);
+          if (parsedContent.scores) {
+            parsedContent.scores.communication = applyDeduction(parsedContent.scores.communication || 0);
+            parsedContent.scores.culturalFit = applyDeduction(parsedContent.scores.culturalFit || 0);
+          }
+          // Append note to summary
+          const notes = [] as string[];
+          if (violations.multipleFaces > 0) notes.push(`${violations.multipleFaces} instance(s) of multiple faces detected`);
+          if (violations.gazeOff > 0) notes.push(`${violations.gazeOff} instance(s) of not looking at screen`);
+          if (notes.length) {
+            parsedContent.summary = `${parsedContent.summary}\n\nProctoring notes: ${notes.join('; ')}.`;
+          }
+        }
         return {
           ...parsedContent,
           shouldProceed: parsedContent.recommendation === 'Hire' || parsedContent.recommendation === 'Strong Hire'
