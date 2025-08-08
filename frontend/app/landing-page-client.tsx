@@ -962,7 +962,7 @@ export default function LandingPageClient() {
                   <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center">
                     <Brain className="w-5 h-5 text-black" />
                   </div>
-                  <span className="text-xl font-semibold">Talent AI</span> {/* Updated name */}
+                  <span className="text-xl font-semibold">Aptiview</span> {/* Updated name */}
                 </div>
 
                 <p className="text-gray-400 mb-6 max-w-md leading-relaxed">
@@ -1020,7 +1020,7 @@ export default function LandingPageClient() {
             <Separator className="bg-gray-800 mb-8" />
 
             <div className="flex flex-col md:flex-row justify-between items-center">
-              <div className="text-sm text-gray-400 mb-4 md:mb-0">© 2024 Talent AI. All rights reserved.</div>{" "}
+              <div className="text-sm text-gray-400 mb-4 md:mb-0">© 2024 Aptiview. All rights reserved.</div>{" "}
               {/* Updated name */}
               <div className="flex space-x-6">
                 {["Privacy Policy", "Terms of Service", "Cookie Policy"].map((item, index) => (

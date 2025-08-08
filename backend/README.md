@@ -11,7 +11,7 @@ The backend API server for Aptiview, built with Node.js, Express, and TypeScript
 - **Authentication**: Clerk
 - **AI Services**: OpenAI API (GPT-4, Whisper, TTS)
 - **Real-time**: WebSocket (ws library)
-- **File Upload**: Multer
+- **File Upload**: ImageKit (CDN) via SDK; Multer legacy fallback
 - **CORS**: Express CORS middleware
 
 ## 📁 Project Structure
@@ -36,7 +36,7 @@ backend/
 ├── prisma/
 │   ├── schema.prisma   # Database schema
 │   └── migrations/     # Database migrations
-├── uploads/            # File upload storage
+├── uploads/            # Legacy local storage (kept for fallback)
 ├── dist/              # Compiled JavaScript (production)
 ├── package.json
 ├── tsconfig.json
@@ -207,14 +207,22 @@ The `SimpleVoiceInterviewer` service handles:
 - Real-time transcription
 - Automatic interview scoring
 
-## 📁 File Upload
+## 📁 Media Storage
 
-Supports file uploads for:
-- Interview recordings (audio/video)
+Supports uploads for:
+- Interview recordings (audio)
 - Screenshots during interviews
-- Profile pictures (future feature)
 
-Files are stored in `/uploads` directory with organized subdirectories.
+Production storage uses ImageKit CDN. Files are uploaded via server-side SDK and stored under folders:
+- `/aptiview/recordings`
+- `/aptiview/screenshots`
+
+Legacy local storage under `/uploads` remains for backward compatibility only.
+
+Environment variables:
+- `IMAGEKIT_PUBLIC_KEY`
+- `IMAGEKIT_PRIVATE_KEY`
+- `IMAGEKIT_URL_ENDPOINT` (e.g., https://ik.imagekit.io/your_id)
 
 ## 🔐 Security Features
 
@@ -275,7 +283,7 @@ Clerk handles authentication. Configure your Clerk application and add the keys 
 1. **Database Connection**: Ensure PostgreSQL is running and DATABASE_URL is correct
 2. **Prisma Client**: Run `npx prisma generate` after schema changes
 3. **Authentication**: Verify Clerk keys and ensure they match your Clerk application
-4. **File Uploads**: Check file permissions in `/uploads` directory
+4. **Media Uploads**: Verify ImageKit credentials and URL endpoint; for legacy local, check `/uploads` permissions
 5. **WebSocket**: Ensure no port conflicts on port 4000
 
 ### Debug Mode

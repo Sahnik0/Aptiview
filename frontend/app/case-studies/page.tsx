@@ -7,7 +7,7 @@ import type { Metadata } from "next"
 
 export const metadata: Metadata = {
   title: "Case Studies",
-  description: "Read success stories from companies transforming their hiring with Talent AI's platform.",
+  description: "Read success stories from companies transforming their hiring with Aptiview's platform.",
   keywords: ["AI hiring success stories", "recruitment case studies", "AI interview results"],
 }
 
@@ -16,7 +16,7 @@ export default function CaseStudiesPage() {
     {
       title: "TechCorp: 80% Reduction in Screening Time",
       description:
-        "Discover how TechCorp leveraged Talent AI to drastically cut down their initial screening time while improving candidate quality.",
+        "Discover how TechCorp leveraged Aptiview to drastically cut down their initial screening time while improving candidate quality.",
       industry: "Software",
       results: ["80% time saved", "30% higher quality hires", "2x faster hiring cycle"],
       link: "#",
@@ -47,7 +47,7 @@ export default function CaseStudiesPage() {
         </Badge>
         <h1 className="text-4xl lg:text-5xl font-bold text-gray-900 mb-4 sm:mb-6 tracking-tight">Success Stories</h1>
         <p className="text-lg sm:text-xl text-gray-600 max-w-3xl mx-auto leading-relaxed">
-          See how leading companies are transforming their hiring with Talent AI.
+          See how leading companies are transforming their hiring with Aptiview.
         </p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8 max-w-6xl mx-auto">

@@ -60,7 +60,7 @@ export function MainNavigation() {
               <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center dark:bg-white">
                 <Brain className="w-5 h-5 text-white dark:text-black" />
               </div>
-              <span className="text-xl font-semibold text-gray-900 dark:text-gray-100">Talent AI</span>{" "}
+              <span className="text-xl font-semibold text-gray-900 dark:text-gray-100">Aptiview</span>{" "}
               {/* Updated name */}
             </Link>
           </motion.div>

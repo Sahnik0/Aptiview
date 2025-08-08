@@ -2,6 +2,7 @@ import multer from 'multer';
 import path from 'path';
 import { promises as fs } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
+import { uploadBase64Image, uploadBuffer } from './imageKitService';
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, '../../uploads');
@@ -71,18 +72,14 @@ export const saveBase64Screenshot = async (
   interviewId: string
 ): Promise<string> => {
   try {
-    await ensureDirectoryExists(screenshotsDir);
-    
-    // Remove data URL prefix if present
-    const base64Image = base64Data.replace(/^data:image\/[a-z]+;base64,/, '');
-    
-    const filename = `${interviewId}-${Date.now()}.png`;
-    const filepath = path.join(screenshotsDir, filename);
-    
-    await fs.writeFile(filepath, base64Image, 'base64');
-    
-    // Return relative path for storage in database
-    return `/uploads/screenshots/${filename}`;
+    // Upload to ImageKit instead of local disk
+    const fileName = `${interviewId}-${Date.now()}.png`;
+    const upload = await uploadBase64Image({
+      base64Data,
+      fileName,
+      folder: '/aptiview/screenshots'
+    });
+    return upload.url;
   } catch (error) {
     console.error('Error saving screenshot:', error);
     throw error;
@@ -95,22 +92,21 @@ export const saveAudioRecording = async (
   interviewId: string
 ): Promise<string> => {
   try {
-    await ensureDirectoryExists(recordingsDir);
-    
     // Determine file extension based on mime type
     let extension = '.wav'; // default
-    if (mimeType.includes('mp3')) extension = '.mp3';
-    else if (mimeType.includes('m4a')) extension = '.m4a';
-    else if (mimeType.includes('ogg')) extension = '.ogg';
-    else if (mimeType.includes('webm')) extension = '.webm';
-    
-    const filename = `${interviewId}-${Date.now()}${extension}`;
-    const filepath = path.join(recordingsDir, filename);
-    
-    await fs.writeFile(filepath, audioBuffer);
-    
-    // Return relative path for storage in database
-    return `/uploads/recordings/${filename}`;
+    if (mimeType?.includes('mp3')) extension = '.mp3';
+    else if (mimeType?.includes('m4a')) extension = '.m4a';
+    else if (mimeType?.includes('ogg')) extension = '.ogg';
+    else if (mimeType?.includes('webm')) extension = '.webm';
+
+    const fileName = `${interviewId}-${Date.now()}${extension}`;
+    const upload = await uploadBuffer({
+      buffer: audioBuffer,
+      fileName,
+      folder: '/aptiview/recordings',
+      mimeType
+    });
+    return upload.url;
   } catch (error) {
     console.error('Error saving audio recording:', error);
     throw error;
@@ -118,14 +114,17 @@ export const saveAudioRecording = async (
 };
 
 export const getFileUrl = (relativePath: string): string => {
+  // When using ImageKit, URLs are absolute already
+  if (relativePath.startsWith('http')) return relativePath;
   const baseUrl = process.env.BACKEND_URL || 'http://localhost:4000';
   return `${baseUrl}${relativePath}`;
 };
 
 export const deleteFile = async (relativePath: string): Promise<void> => {
   try {
+    // No-op for ImageKit (could implement delete via imagekit.deleteFile if fileId stored)
     const fullPath = path.join(__dirname, '../../', relativePath);
-    await fs.unlink(fullPath);
+    await fs.unlink(fullPath).catch(() => {});
   } catch (error) {
     console.error('Error deleting file:', error);
     // Don't throw error for file deletion failures

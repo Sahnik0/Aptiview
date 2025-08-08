@@ -6,8 +6,8 @@ import type { Metadata } from "next"
 
 export const metadata: Metadata = {
   title: "Recruiter Onboarding",
-  description: "Follow these simple steps to get started with Talent AI and revolutionize your hiring process.",
-  keywords: ["recruiter onboarding", "AI hiring setup", "get started with Talent AI"],
+  description: "Follow these simple steps to get started with Aptiview and revolutionize your hiring process.",
+  keywords: ["recruiter onboarding", "AI hiring setup", "get started with Aptiview"],
 }
 
 export default function RecruiterOnboardingPage() {
@@ -39,7 +39,7 @@ export default function RecruiterOnboardingPage() {
           Onboarding
         </Badge>
         <h1 className="text-4xl lg:text-5xl font-bold text-gray-900 mb-4 sm:mb-6 tracking-tight">
-          Get Started with Talent AI
+          Get Started with Aptiview
         </h1>
         <p className="text-lg sm:text-xl text-gray-600 max-w-3xl mx-auto leading-relaxed">
           Follow these simple steps to revolutionize your hiring process.

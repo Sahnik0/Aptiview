@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { AIInterviewer } from '../services/aiInterviewer';
 import { VoiceInterviewer } from '../services/voiceInterviewer';
 import { saveBase64Screenshot } from '../services/fileService';
+import { uploadBuffer } from '../services/imageKitService';
 import WebSocket from 'ws';
 
 const router = express.Router();
@@ -22,8 +23,16 @@ const createAIInterviewer = (job: any) => {
 
 // Helper function to save recording (placeholder)
 const saveRecording = async (recordingData: any, uniqueLink: string): Promise<string> => {
-  // For now, just return a mock URL - in production you'd save to cloud storage
-  return `/uploads/recordings/${uniqueLink}_${Date.now()}.webm`;
+  // recordingData is expected as base64 string (webm)
+  const base64 = typeof recordingData === 'string' ? recordingData.replace(/^data:[^;]+;base64,/, '') : '';
+  const buffer = Buffer.from(base64, 'base64');
+  const res = await uploadBuffer({
+    buffer,
+    fileName: `${uniqueLink}_${Date.now()}.webm`,
+    folder: '/aptiview/recordings',
+    mimeType: 'video/webm'
+  });
+  return res.url;
 };
 
 // Schedule an interview (after job application)

@@ -28,7 +28,8 @@ app.use(clerkMiddleware({
   secretKey: process.env.CLERK_SECRET_KEY,
 }));
 
-// Serve static files from uploads directory
+// Legacy: serve static files from uploads directory (kept for backward compatibility)
+// New media are uploaded to ImageKit and served via CDN URLs
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 app.get('/health', (req, res) => {

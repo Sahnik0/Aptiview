@@ -6,7 +6,7 @@ import type { Metadata } from "next"
 
 export const metadata: Metadata = {
   title: "Pricing",
-  description: "Explore Talent AI's transparent pricing plans for AI-powered hiring solutions.",
+  description: "Explore Aptiview's transparent pricing plans for AI-powered hiring solutions.",
   keywords: ["AI hiring pricing", "recruitment software cost", "AI interview plans"],
 }
 

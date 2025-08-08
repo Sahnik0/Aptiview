@@ -5,7 +5,7 @@ import LandingPageClient from "./landing-page-client"
 export const metadata: Metadata = {
   title: "Home",
   description:
-    "Talent AI: Revolutionize your hiring process with AI-powered interviews and smart candidate evaluation.",
+    "Aptiview: Revolutionize your hiring process with AI-powered interviews and smart candidate evaluation.",
   keywords: ["AI hiring", "recruitment AI", "AI interviews", "talent acquisition"],
 }
 

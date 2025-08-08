@@ -16,11 +16,11 @@ const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
   title: {
-    default: "Talent AI - AI-Powered Hiring Platform",
-    template: "%s | Talent AI",
+    default: "Aptiview - AI-Powered Hiring Platform",
+    template: "%s | Aptiview",
   },
   description:
-    "Revolutionize your hiring process with Talent AI's intelligent platform. Leverage AI-powered interviews, real-time analytics, and bias-free candidate evaluation to find top talent faster.",
+    "Revolutionize your hiring process with Aptiview's intelligent platform. Leverage AI-powered interviews, real-time analytics, and bias-free candidate evaluation to find top talent faster.",
   keywords: [
     "AI hiring",
     "recruitment AI",
@@ -31,17 +31,17 @@ export const metadata: Metadata = {
     "bias-free hiring",
   ],
   openGraph: {
-    title: "Talent AI - AI-Powered Hiring Platform",
+    title: "Aptiview - AI-Powered Hiring Platform",
     description:
-      "Revolutionize your hiring process with Talent AI's intelligent platform. Leverage AI-powered interviews, real-time analytics, and bias-free candidate evaluation to find top talent faster.",
+      "Revolutionize your hiring process with Aptiview's intelligent platform. Leverage AI-powered interviews, real-time analytics, and bias-free candidate evaluation to find top talent faster.",
     url: "https://www.talentai.com",
-    siteName: "Talent AI",
+    siteName: "Aptiview",
     images: [
       {
         url: "/placeholder.svg?height=630&width=1200",
         width: 1200,
         height: 630,
-        alt: "Talent AI - AI-Powered Hiring Platform",
+        alt: "Aptiview - AI-Powered Hiring Platform",
       },
     ],
     locale: "en_US",
@@ -49,15 +49,15 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Talent AI - AI-Powered Hiring Platform",
+    title: "Aptiview - AI-Powered Hiring Platform",
     description:
-      "Revolutionize your hiring process with Talent AI's intelligent platform. Leverage AI-powered interviews, real-time analytics, and bias-free candidate evaluation to find top talent faster.",
+      "Revolutionize your hiring process with Aptiview's intelligent platform. Leverage AI-powered interviews, real-time analytics, and bias-free candidate evaluation to find top talent faster.",
     creator: "@TalentAI",
     images: ["/placeholder.svg?height=675&width=1200"],
   },
-  authors: [{ name: "Talent AI Team" }],
-  creator: "Talent AI",
-  publisher: "Talent AI",
+  authors: [{ name: "Aptiview Team" }],
+  creator: "Aptiview",
+  publisher: "Aptiview",
 }
 
 export default function RootLayout({
