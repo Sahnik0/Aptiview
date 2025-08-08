@@ -247,8 +247,8 @@ export function setupWebSocketServer(server: Server) {
                   console.warn('Audio size mismatch - reported:', message.size, 'actual:', audioBuffer.length);
                 }
                 
-                // Save audio recording to file system
-                if (ws.interviewId) {
+                // Save audio recording to file system (optional)
+                if (ws.interviewId && (process.env.SAVE_AUDIO_STREAM === '1' || process.env.SAVE_AUDIO_STREAM === 'true')) {
                   try {
                     const audioUrl = await saveAudioRecording(audioBuffer, message.mimeType, ws.interviewId);
                     

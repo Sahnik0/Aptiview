@@ -58,6 +58,7 @@ export default function VoiceInterviewPage() {
   const faceDetectIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const vadRef = useRef<{ctx: AudioContext; analyser: AnalyserNode; source: MediaStreamAudioSourceNode; data: Uint8Array; silenceMs: number; lastVoice: number} | null>(null);
   const [detectorInfo, setDetectorInfo] = useState<string>('');
   const [faceCount, setFaceCount] = useState<number>(0);
   const faceStatus = useMemo<'ok' | 'none' | 'multiple'>(() => {
@@ -215,10 +216,17 @@ export default function VoiceInterviewPage() {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: 'user',
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          width: { ideal: 960, max: 1280 },
+          height: { ideal: 540, max: 720 },
+          frameRate: { ideal: 24, max: 30 },
         },
-        audio: true  // Simplified audio request
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 48000,
+          channelCount: 1
+        }
       });
 
       console.log('Media permissions granted');
@@ -255,6 +263,17 @@ export default function VoiceInterviewPage() {
       stream.getAudioTracks().forEach(track => {
         audioOnlyStream.addTrack(track);
       });
+
+      // Setup lightweight VAD (silence detection) to auto-stop
+      try {
+        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const source = ctx.createMediaStreamSource(audioOnlyStream);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 2048;
+        source.connect(analyser);
+        const data = new Uint8Array(analyser.fftSize);
+        vadRef.current = { ctx, analyser, source, data, silenceMs: 0, lastVoice: Date.now() };
+      } catch {}
 
   // Setup MediaRecorder with audio-only stream for better compatibility with Whisper
       let mediaRecorder: MediaRecorder;
@@ -345,6 +364,32 @@ export default function VoiceInterviewPage() {
         audioChunksRef.current = [];
   // Start recording (no timeslice) and collect chunks until stop
   mediaRecorderRef.current.start();
+  // Start VAD loop
+  if (vadRef.current) {
+    const { analyser, data } = vadRef.current;
+    const tick = () => {
+      if (!isRecording || !vadRef.current) return;
+  (analyser as any).getByteTimeDomainData(data as any);
+      // Compute simple RMS
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) {
+        const v = (data[i] - 128) / 128;
+        sum += v * v;
+      }
+      const rms = Math.sqrt(sum / data.length);
+      const now = Date.now();
+      if (rms > 0.02) {
+        vadRef.current.lastVoice = now;
+      }
+      // Auto-stop if 1200ms of silence after at least 2.5s of speech window
+      if (now - vadRef.current.lastVoice > 1200) {
+        stopRecording();
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
         setIsRecording(true);
   console.log('Started recording audio (1s slices)');
         
@@ -374,6 +419,10 @@ export default function VoiceInterviewPage() {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
       console.log('Stopped recording audio');
+      // Reset VAD trackers
+      if (vadRef.current) {
+        vadRef.current.lastVoice = Date.now();
+      }
       // After stop, combine chunks and send a single blob
       setTimeout(() => {
         if (audioChunksRef.current.length > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
@@ -502,6 +551,14 @@ export default function VoiceInterviewPage() {
       connectWebSocket();
       setShowPermissionModal(false);
       setIsInterviewActive(true);
+      // Slight delay before requesting fullscreen to avoid jank
+      setTimeout(async () => {
+        try {
+          if (!document.fullscreenElement) {
+            await document.documentElement.requestFullscreen();
+          }
+        } catch {}
+      }, 300);
       // Intervals are started via effects once video + data ready
     } catch (err: any) {
       setPermissionError(err?.message || 'Failed to access camera/microphone. Please try again.');
