@@ -60,7 +60,8 @@ export default function RecruiterDashboard() {
     try {
       setTemplatesLoading(true);
       const token = await getToken();
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/ai-templates`, {
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
+  const response = await fetch(`${backendUrl}/api/users/ai-templates`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -88,7 +89,8 @@ export default function RecruiterDashboard() {
     try {
       setDeleteLoading(jobId);
       const token = await getToken();
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/jobs/${jobId}`, {
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
+  const response = await fetch(`${backendUrl}/api/users/jobs/${jobId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -112,6 +114,8 @@ export default function RecruiterDashboard() {
 
       // Remove job from state
       setJobs(jobs.filter(job => job.id !== jobId));
+  // Refresh stats and any other derived data
+  fetchDashboardData();
       
       // Show success message
       alert('Job deleted successfully');

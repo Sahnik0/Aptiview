@@ -12,6 +12,8 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function CandidateDashboardPage() {
   // Auth & routing hooks
@@ -27,6 +29,8 @@ export default function CandidateDashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [appFilter, setAppFilter] = useState<"ALL" | "PENDING" | "INTERVIEW" | "COMPLETED" | "REJECTED">("ALL");
+  const [appSort, setAppSort] = useState<"recent" | "oldest" | "status" | "title" | "company">("recent");
+  const [jobSort, setJobSort] = useState<"relevance" | "title" | "company" | "location">("relevance");
 
   // Effects
   useEffect(() => {
@@ -93,6 +97,7 @@ export default function CandidateDashboardPage() {
       company: app.job?.recruiter?.company || "",
       status: app.status?.replace(/_/g, " ") || "",
       date: app.createdAt ? new Date(app.createdAt).toLocaleDateString() : "",
+      appliedAt: app.createdAt ? new Date(app.createdAt).getTime() : 0,
       location: app.job?.location || "",
       type: app.job?.type || "",
       interview: interview
@@ -137,6 +142,23 @@ export default function CandidateDashboardPage() {
     );
   }, [mappedApplications, appFilter, query]);
 
+  const sortedApplications = useMemo(() => {
+    const arr = [...filteredApplications]
+    switch (appSort) {
+      case "oldest":
+        return arr.sort((a, b) => a.appliedAt - b.appliedAt)
+      case "status":
+        return arr.sort((a, b) => a.status.localeCompare(b.status))
+      case "title":
+        return arr.sort((a, b) => a.jobTitle.localeCompare(b.jobTitle))
+      case "company":
+        return arr.sort((a, b) => a.company.localeCompare(b.company))
+      case "recent":
+      default:
+        return arr.sort((a, b) => b.appliedAt - a.appliedAt)
+    }
+  }, [filteredApplications, appSort])
+
   const filteredJobs = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return mappedJobs;
@@ -148,6 +170,21 @@ export default function CandidateDashboardPage() {
         j.type.toLowerCase().includes(q)
     );
   }, [mappedJobs, query]);
+
+  const sortedJobs = useMemo(() => {
+    const arr = [...filteredJobs]
+    switch (jobSort) {
+      case "title":
+        return arr.sort((a, b) => a.title.localeCompare(b.title))
+      case "company":
+        return arr.sort((a, b) => a.company.localeCompare(b.company))
+      case "location":
+        return arr.sort((a, b) => a.location.localeCompare(b.location))
+      case "relevance":
+      default:
+        return arr
+    }
+  }, [filteredJobs, jobSort])
 
   const upcomingInterviews = myInterviews.filter((i: any) => !i.endedAt).length;
 
@@ -248,74 +285,147 @@ export default function CandidateDashboardPage() {
           <Card className="hover:shadow-lg transition-shadow duration-300">
             <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sm:gap-0">
               <CardTitle className="text-xl font-semibold text-gray-900">My Applications</CardTitle>
-              <Tabs value={appFilter} defaultValue="ALL" onValueChange={(v) => setAppFilter(v as any)} className="w-full sm:w-auto">
-                <TabsList className="grid grid-cols-5 w-full sm:w-auto">
-                  <TabsTrigger value="ALL">All</TabsTrigger>
-                  <TabsTrigger value="PENDING">Pending</TabsTrigger>
-                  <TabsTrigger value="INTERVIEW">Interview</TabsTrigger>
-                  <TabsTrigger value="COMPLETED">Completed</TabsTrigger>
-                  <TabsTrigger value="REJECTED">Rejected</TabsTrigger>
-                </TabsList>
-              </Tabs>
+              <div className="w-full sm:w-auto flex flex-col sm:flex-row gap-2 sm:items-center">
+                {/* Mobile: compact select for filter to avoid overlap */}
+                <Select value={appFilter} onValueChange={(v) => setAppFilter(v as any)}>
+                  <SelectTrigger className="sm:hidden w-full" aria-label="Filter applications">
+                    <SelectValue placeholder="Filter" />
+                  </SelectTrigger>
+                  <SelectContent className="sm:hidden">
+                    <SelectItem value="ALL">All</SelectItem>
+                    <SelectItem value="PENDING">Pending</SelectItem>
+                    <SelectItem value="INTERVIEW">Interview</SelectItem>
+                    <SelectItem value="COMPLETED">Completed</SelectItem>
+                    <SelectItem value="REJECTED">Rejected</SelectItem>
+                  </SelectContent>
+                </Select>
+                {/* Desktop/Tablet: tabbed filters with wrapping */}
+                <Tabs value={appFilter} defaultValue="ALL" onValueChange={(v) => setAppFilter(v as any)} className="hidden sm:block w-full sm:w-auto">
+                  <TabsList className="flex flex-wrap items-center gap-1 w-full overflow-x-auto">
+                    <TabsTrigger className="whitespace-nowrap" value="ALL">All</TabsTrigger>
+                    <TabsTrigger className="whitespace-nowrap" value="PENDING">Pending</TabsTrigger>
+                    <TabsTrigger className="whitespace-nowrap" value="INTERVIEW">Interview</TabsTrigger>
+                    <TabsTrigger className="whitespace-nowrap" value="COMPLETED">Completed</TabsTrigger>
+                    <TabsTrigger className="whitespace-nowrap" value="REJECTED">Rejected</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+                <Select value={appSort} onValueChange={(v) => setAppSort(v as any)}>
+                  <SelectTrigger className="w-full sm:w-[180px]">
+                    <SelectValue placeholder="Sort by" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="recent">Recent</SelectItem>
+                    <SelectItem value="oldest">Oldest</SelectItem>
+                    <SelectItem value="status">Status</SelectItem>
+                    <SelectItem value="title">Job Title</SelectItem>
+                    <SelectItem value="company">Company</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </CardHeader>
             <CardContent>
-              {filteredApplications.length === 0 ? (
+              {sortedApplications.length === 0 ? (
                 <div className="border border-dashed border-gray-200 rounded-xl p-8 text-center text-gray-500">
                   No applications match your filters.
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {filteredApplications.map((app) => (
-                    <div key={app.id} className="group rounded-xl border border-gray-200 bg-white p-4 shadow-sm hover:shadow-md transition-all">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <h3 className="text-base font-semibold text-gray-900 leading-6">{app.jobTitle}</h3>
-                          <p className="text-sm text-gray-600 flex items-center gap-1"><Building2 className="h-4 w-4" /> {app.company || "—"}</p>
-                        </div>
-                        <Badge
-                          variant="outline"
-                          className={cn(
-                            "capitalize",
-                            app.status === "Interview Scheduled"
-                              ? "bg-blue-50 text-blue-700 border-blue-200"
-                              : "bg-gray-50 text-gray-700 border-gray-200"
-                          )}
-                        >
-                          {app.status}
-                        </Badge>
-                      </div>
-                      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-gray-600">
-                        <span className="px-2 py-1 rounded-lg bg-gray-50 border border-gray-200">Applied: {app.date}</span>
-                        {app.location && <span className="px-2 py-1 rounded-lg bg-gray-50 border border-gray-200 flex items-center gap-1"><MapPin className="h-3.5 w-3.5" /> {app.location}</span>}
-                        {app.type && <span className="px-2 py-1 rounded-lg bg-gray-50 border border-gray-200">{app.type}</span>}
-                      </div>
-                      <div className="mt-4 flex items-center justify-between">
-                        {app.interview ? (
-                          <div className="text-xs text-gray-600">
-                            {new Date(app.interview.scheduledAt).toLocaleDateString()} at{" "}
-                            {new Date(app.interview.scheduledAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                <>
+                  {/* Desktop/tablet: table view */}
+                  <div className="hidden md:block">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Job</TableHead>
+                          <TableHead>Company</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Applied</TableHead>
+                          <TableHead className="hidden lg:table-cell">Location</TableHead>
+                          <TableHead className="hidden lg:table-cell">Type</TableHead>
+                          <TableHead>Interview</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {sortedApplications.map((app) => (
+                          <TableRow key={app.id} className="hover:bg-gray-50">
+                            <TableCell className="font-medium text-gray-900">{app.jobTitle}</TableCell>
+                            <TableCell className="text-gray-700">{app.company || "—"}</TableCell>
+                            <TableCell>
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  "capitalize",
+                                  app.status === "Interview Scheduled"
+                                    ? "bg-blue-50 text-blue-700 border-blue-200"
+                                    : "bg-gray-50 text-gray-700 border-gray-200"
+                                )}
+                              >
+                                {app.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-gray-700">{app.date}</TableCell>
+                            <TableCell className="hidden lg:table-cell text-gray-600">{app.location || ""}</TableCell>
+                            <TableCell className="hidden lg:table-cell text-gray-600">{app.type || ""}</TableCell>
+                            <TableCell className="text-gray-700">
+                              {app.interview ? (
+                                app.interview.isCompleted ? (
+                                  <Badge variant="secondary" className="text-xs">Completed</Badge>
+                                ) : app.interview.canJoin ? (
+                                  <Link href={`/interview/${app.interview.uniqueLink}`}>
+                                    <Button size="sm" className="h-8 text-xs bg-green-600 hover:bg-green-700">Join</Button>
+                                  </Link>
+                                ) : (
+                                  <Badge variant="outline" className="text-xs">Scheduled</Badge>
+                                )
+                              ) : (
+                                <span className="text-xs text-gray-400">None</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button variant="ghost" size="sm" className="h-8 text-xs">View</Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  {/* Mobile: card list */}
+                  <div className="md:hidden grid grid-cols-1 gap-3">
+                    {sortedApplications.map((app) => (
+                      <div key={app.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <div className="text-sm font-semibold text-gray-900">{app.jobTitle}</div>
+                            <div className="text-xs text-gray-600 flex items-center gap-1"><Building2 className="h-3.5 w-3.5" /> {app.company || "—"}</div>
                           </div>
-                        ) : (
-                          <span className="text-xs text-gray-400">No interview scheduled</span>
-                        )}
-                        <div className="flex gap-2">
-                          {app.interview && (
-                            app.interview.isCompleted ? (
-                              <Badge variant="secondary" className="text-xs">Completed</Badge>
-                            ) : app.interview.canJoin ? (
-                              <Link href={`/interview/${app.interview.uniqueLink}`}>
-                                <Button size="sm" className="h-8 text-xs bg-green-600 hover:bg-green-700">Join</Button>
-                              </Link>
+                          <Badge variant="outline" className="capitalize">{app.status}</Badge>
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-gray-600">
+                          <span className="px-2 py-1 rounded-md bg-gray-50 border border-gray-200">Applied: {app.date}</span>
+                          {app.location && <span className="px-2 py-1 rounded-md bg-gray-50 border border-gray-200 flex items-center gap-1"><MapPin className="h-3 w-3" /> {app.location}</span>}
+                          {app.type && <span className="px-2 py-1 rounded-md bg-gray-50 border border-gray-200">{app.type}</span>}
+                        </div>
+                        <div className="mt-3 flex items-center justify-between">
+                          <div className="text-[11px] text-gray-600">
+                            {app.interview ? (
+                              app.interview.isCompleted ? "Interview completed" : app.interview.canJoin ? "Can join soon" : "Interview scheduled"
                             ) : (
-                              <Badge variant="outline" className="text-xs">Scheduled</Badge>
-                            )
-                          )}
-                          <Button variant="ghost" size="sm" className="h-8 text-xs">View</Button>
+                              "No interview"
+                            )}
+                          </div>
+                          <div className="flex gap-1.5">
+                            {app.interview && app.interview.canJoin && !app.interview.isCompleted ? (
+                              <Link href={`/interview/${app.interview.uniqueLink}`}>
+                                <Button size="sm" className="h-8 text-xs">Join</Button>
+                              </Link>
+                            ) : null}
+                            <Button variant="ghost" size="sm" className="h-8 text-xs">View</Button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
@@ -330,42 +440,89 @@ export default function CandidateDashboardPage() {
                     Browse All <ArrowRight className="h-4 w-4 ml-1" />
                   </Button>
                 </Link>
+                <Select value={jobSort} onValueChange={(v) => setJobSort(v as any)}>
+                  <SelectTrigger className="w-full sm:w-[160px]">
+                    <SelectValue placeholder="Sort" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="relevance">Relevance</SelectItem>
+                    <SelectItem value="title">Title</SelectItem>
+                    <SelectItem value="company">Company</SelectItem>
+                    <SelectItem value="location">Location</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </CardHeader>
             <CardContent>
-              {filteredJobs.length === 0 ? (
+              {sortedJobs.length === 0 ? (
                 <div className="border border-dashed border-gray-200 rounded-xl p-8 text-center text-gray-500">
                   No jobs found. Try adjusting your search.
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {filteredJobs.slice(0, 8).map((job) => (
-                    <div key={job.id} className="group rounded-xl border border-gray-200 bg-white p-4 shadow-sm hover:shadow-md transition-all">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <h3 className="text-base font-semibold text-gray-900 leading-6">{job.title}</h3>
-                          <p className="text-sm text-gray-600 flex items-center gap-1"><Building2 className="h-4 w-4" /> {job.company || "—"}</p>
+                <>
+                  <div className="hidden md:block">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Title</TableHead>
+                          <TableHead>Company</TableHead>
+                          <TableHead className="hidden lg:table-cell">Location</TableHead>
+                          <TableHead className="hidden lg:table-cell">Type</TableHead>
+                          <TableHead>Applied</TableHead>
+                          <TableHead className="text-right">Action</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {sortedJobs.slice(0, 8).map((job) => (
+                          <TableRow key={job.id} className="hover:bg-gray-50">
+                            <TableCell className="font-medium text-gray-900">{job.title}</TableCell>
+                            <TableCell className="text-gray-700">{job.company || "—"}</TableCell>
+                            <TableCell className="hidden lg:table-cell text-gray-600">{job.location || ""}</TableCell>
+                            <TableCell className="hidden lg:table-cell text-gray-600">{job.type || ""}</TableCell>
+                            <TableCell>{job.alreadyApplied ? <Badge variant="outline" className="text-xs">Applied</Badge> : <span className="text-xs text-gray-400">—</span>}</TableCell>
+                            <TableCell className="text-right">
+                              {job.alreadyApplied ? (
+                                <Button disabled className="h-8 text-xs bg-gray-300 cursor-not-allowed">Applied</Button>
+                              ) : (
+                                <Link href={`/candidate/apply?jobId=${job.id}&jobTitle=${encodeURIComponent(job.title)}`}>
+                                  <Button className="h-8 text-xs">Apply</Button>
+                                </Link>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <div className="md:hidden grid grid-cols-1 gap-3">
+                    {sortedJobs.slice(0, 8).map((job) => (
+                      <div key={job.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <div className="text-sm font-semibold text-gray-900">{job.title}</div>
+                            <div className="text-xs text-gray-600 flex items-center gap-1"><Building2 className="h-3.5 w-3.5" /> {job.company || "—"}</div>
+                          </div>
+                          {job.alreadyApplied ? (
+                            <Badge variant="outline" className="text-xs">Applied</Badge>
+                          ) : null}
                         </div>
-                        {job.alreadyApplied ? (
-                          <Badge variant="outline" className="text-xs bg-gray-50 text-gray-600 border-gray-200">Applied</Badge>
-                        ) : null}
+                        <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-gray-600">
+                          {job.location && <span className="px-2 py-1 rounded-md bg-gray-50 border border-gray-200 flex items-center gap-1"><MapPin className="h-3 w-3" /> {job.location}</span>}
+                          {job.type && <span className="px-2 py-1 rounded-md bg-gray-50 border border-gray-200">{job.type}</span>}
+                        </div>
+                        <div className="mt-3 flex justify-end">
+                          {job.alreadyApplied ? (
+                            <Button disabled className="h-8 text-xs bg-gray-300 cursor-not-allowed">Applied</Button>
+                          ) : (
+                            <Link href={`/candidate/apply?jobId=${job.id}&jobTitle=${encodeURIComponent(job.title)}`}>
+                              <Button className="h-8 text-xs">Apply</Button>
+                            </Link>
+                          )}
+                        </div>
                       </div>
-                      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-gray-600">
-                        {job.location && <span className="px-2 py-1 rounded-lg bg-gray-50 border border-gray-200 flex items-center gap-1"><MapPin className="h-3.5 w-3.5" /> {job.location}</span>}
-                        {job.type && <span className="px-2 py-1 rounded-lg bg-gray-50 border border-gray-200">{job.type}</span>}
-                      </div>
-                      <div className="mt-4 flex items-center justify-end">
-                        {job.alreadyApplied ? (
-                          <Button disabled className="h-8 text-xs bg-gray-300 cursor-not-allowed">Already Applied</Button>
-                        ) : (
-                          <Link href={`/candidate/apply?jobId=${job.id}&jobTitle=${encodeURIComponent(job.title)}`}>
-                            <Button className="h-8 text-xs">Apply</Button>
-                          </Link>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
