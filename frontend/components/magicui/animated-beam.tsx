@@ -1,7 +1,7 @@
 "use client"
 
 import { motion } from "motion/react"
-import { type RefObject, useEffect, useId, useState } from "react"
+import { type RefObject, useEffect, useId, useMemo, useState } from "react"
 
 import { cn } from "@/lib/utils"
 
@@ -23,6 +23,14 @@ export interface AnimatedBeamProps {
   startYOffset?: number
   endXOffset?: number
   endYOffset?: number
+  /** Disable gradient animation and motion for users preferring reduced motion */
+  animated?: boolean
+  /** Draw a soft glow under the colored beam */
+  glow?: boolean
+  /** Animate dash offset to simulate flow */
+  dashed?: boolean
+  /** Custom line cap */
+  lineCap?: "round" | "butt" | "square"
 }
 
 export const AnimatedBeam: React.FC<AnimatedBeamProps> = ({
@@ -43,10 +51,15 @@ export const AnimatedBeam: React.FC<AnimatedBeamProps> = ({
   startYOffset = 0,
   endXOffset = 0,
   endYOffset = 0,
+  animated = true,
+  glow = true,
+  dashed = false,
+  lineCap = "round",
 }) => {
   const id = useId()
   const [pathD, setPathD] = useState("")
   const [svgDimensions, setSvgDimensions] = useState({ width: 0, height: 0 })
+  const [prefersReduced, setPrefersReduced] = useState(false)
 
   // Calculate the gradient coordinates based on the reverse prop
   const gradientCoordinates = reverse
@@ -62,6 +75,17 @@ export const AnimatedBeam: React.FC<AnimatedBeamProps> = ({
         y1: ["0%", "0%"],
         y2: ["0%", "0%"],
       }
+
+  useEffect(() => {
+    // Detect reduced motion
+    if (typeof window !== "undefined" && "matchMedia" in window) {
+      const mql = window.matchMedia("(prefers-reduced-motion: reduce)")
+      const set = () => setPrefersReduced(mql.matches)
+      set()
+      mql.addEventListener?.("change", set)
+      return () => mql.removeEventListener?.("change", set)
+    }
+  }, [])
 
   useEffect(() => {
     const updatePath = () => {
@@ -86,11 +110,8 @@ export const AnimatedBeam: React.FC<AnimatedBeamProps> = ({
     }
 
     // Initialize ResizeObserver
-    const resizeObserver = new ResizeObserver((entries) => {
-      // For all entries, recalculate the path
-      for (const entry of entries) {
-        updatePath()
-      }
+    const resizeObserver = new ResizeObserver(() => {
+      updatePath()
     })
 
     // Observe the container element
@@ -101,11 +122,22 @@ export const AnimatedBeam: React.FC<AnimatedBeamProps> = ({
     // Call the updatePath initially to set the initial path
     updatePath()
 
+    // Also listen to scroll to handle layout shifts beyond size changes
+    const onScroll = () => updatePath()
+    window.addEventListener("scroll", onScroll, { passive: true })
+
     // Clean up the observer on component unmount
     return () => {
       resizeObserver.disconnect()
+      window.removeEventListener("scroll", onScroll)
     }
   }, [containerRef, fromRef, toRef, curvature, startXOffset, startYOffset, endXOffset, endYOffset])
+
+  const dashProps = useMemo(() => {
+    if (!dashed) return {}
+    const length = 12 * pathWidth
+    return { strokeDasharray: `${length} ${length}`, pathLength: 1 }
+  }, [dashed, pathWidth])
 
   return (
     <svg
@@ -115,10 +147,47 @@ export const AnimatedBeam: React.FC<AnimatedBeamProps> = ({
       xmlns="http://www.w3.org/2000/svg"
       className={cn("pointer-events-none absolute left-0 top-0 transform-gpu stroke-2", className)}
       viewBox={`0 0 ${svgDimensions.width} ${svgDimensions.height}`}
+      aria-hidden="true"
+      focusable="false"
     >
-      <path d={pathD} stroke={pathColor} strokeWidth={pathWidth} strokeOpacity={pathOpacity} strokeLinecap="round" />
-      <path d={pathD} strokeWidth={pathWidth} stroke={`url(#${id})`} strokeOpacity="1" strokeLinecap="round" />
+      {/* Base subtle path */}
+      <path d={pathD} stroke={pathColor} strokeWidth={pathWidth} strokeOpacity={pathOpacity} strokeLinecap={lineCap} />
+      {/* Optional glow */}
+      {glow ? (
+        <path
+          d={pathD}
+          stroke={gradientStartColor}
+          strokeWidth={pathWidth * 1.6}
+          strokeOpacity={0.12}
+          strokeLinecap={lineCap}
+          filter={`url(#glow-${id})`}
+        />
+      ) : null}
+      {/* Colored animated/dashed path */}
+      {animated && !prefersReduced ? (
+        <motion.path
+          d={pathD}
+          strokeWidth={pathWidth}
+          stroke={`url(#${id})`}
+          strokeOpacity="1"
+          strokeLinecap={lineCap}
+          animate={dashed ? { pathLength: [0.2, 1], pathOffset: [1, 0] } : undefined}
+          transition={dashed ? { duration: duration, repeat: Infinity, ease: "linear", delay } : undefined}
+          {...dashProps}
+        />
+      ) : (
+        <path d={pathD} strokeWidth={pathWidth} stroke={`url(#${id})`} strokeOpacity="1" strokeLinecap={lineCap} />
+      )}
       <defs>
+        {glow ? (
+          <filter id={`glow-${id}`} x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="3" result="coloredBlur" />
+            <feMerge>
+              <feMergeNode in="coloredBlur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        ) : null}
         <motion.linearGradient
           className="transform-gpu"
           id={id}
@@ -129,19 +198,19 @@ export const AnimatedBeam: React.FC<AnimatedBeamProps> = ({
             y1: "0%",
             y2: "0%",
           }}
-          animate={{
+          animate={animated && !prefersReduced ? {
             x1: gradientCoordinates.x1,
             x2: gradientCoordinates.x2,
             y1: gradientCoordinates.y1,
             y2: gradientCoordinates.y2,
-          }}
-          transition={{
+          } : undefined}
+          transition={animated && !prefersReduced ? {
             delay,
             duration,
             ease: [0.16, 1, 0.3, 1], // https://easings.net/#easeOutExpo
             repeat: Number.POSITIVE_INFINITY,
             repeatDelay: 0,
-          }}
+          } : undefined}
         >
           <stop stopColor={gradientStartColor} stopOpacity="0"></stop>
           <stop stopColor={gradientStartColor}></stop>

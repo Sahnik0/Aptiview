@@ -102,6 +102,18 @@ The application will be available at `http://localhost:3000`.
 - `pnpm lint` - Run ESLint
 - `pnpm type-check` - Run TypeScript check
 
+## 🧭 Smooth Scrolling (Lenis)
+
+- Lenis is enabled globally via a React provider and CSS import.
+- Anchor links (e.g., href="#demo") use Lenis smooth scrolling and respect a fixed header offset.
+
+Key locations:
+- Provider: `components/LenisRoot.tsx` (anchors offset is set to 80px; autoRaf enabled)
+- Wiring: `app/layout.tsx` wraps the app with `LenisRoot` and imports `lenis/dist/lenis.css`
+
+Adjust header offset:
+- Update `anchors: { offset: 80 }` in `components/LenisRoot.tsx` if the header height changes.
+
 ## 📱 Features
 
 ### Authentication & Authorization
