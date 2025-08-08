@@ -12,6 +12,7 @@ interface InterviewContext {
   interviewContext?: string;
   candidateResumeUrl?: string;
   candidateCoverLetter?: string;
+  resumeSummary?: string;
 }
 
 interface InterviewQuestion {
@@ -43,7 +44,7 @@ Custom Questions to Include:
 ${this.context.customQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}
 ` : ''}
 
- ${this.context.candidateResumeUrl ? `Candidate Resume (URL): ${this.context.candidateResumeUrl}` : ''}
+ ${this.context.resumeSummary ? `Candidate Resume Summary: ${this.context.resumeSummary}` : this.context.candidateResumeUrl ? `Candidate Resume (URL): ${this.context.candidateResumeUrl}` : ''}
  ${this.context.candidateCoverLetter ? `Candidate Cover Letter: ${this.context.candidateCoverLetter}` : ''}
 
 Guidelines:

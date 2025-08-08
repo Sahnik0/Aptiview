@@ -300,19 +300,10 @@ export default function VoiceInterviewPage() {
 
       mediaRecorderRef.current = mediaRecorder;
 
-      // Stream shorter chunks for lower latency
+      // Collect chunks and send once per utterance on stop for better transcription quality
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
-          if (wsRef.current?.readyState === WebSocket.OPEN) {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              const base64 = (reader.result as string).split(',')[1];
-              wsRef.current?.send(JSON.stringify({ type: 'audio-data', audioData: base64, mimeType: mediaRecorder.mimeType, size: event.data.size }));
-            };
-            reader.readAsDataURL(event.data);
-          } else {
-            audioChunksRef.current.push(event.data);
-          }
+          audioChunksRef.current.push(event.data);
         }
       };
 
@@ -352,8 +343,8 @@ export default function VoiceInterviewPage() {
     try {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'inactive') {
         audioChunksRef.current = [];
-  // Start recording with 1s slices for low latency streaming
-  mediaRecorderRef.current.start(1000);
+  // Start recording (no timeslice) and collect chunks until stop
+  mediaRecorderRef.current.start();
         setIsRecording(true);
   console.log('Started recording audio (1s slices)');
         
@@ -383,6 +374,19 @@ export default function VoiceInterviewPage() {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
       console.log('Stopped recording audio');
+      // After stop, combine chunks and send a single blob
+      setTimeout(() => {
+        if (audioChunksRef.current.length > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
+          const blob = new Blob(audioChunksRef.current, { type: mediaRecorderRef.current?.mimeType || 'audio/webm' });
+          audioChunksRef.current = [];
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const base64 = (reader.result as string).split(',')[1];
+            wsRef.current?.send(JSON.stringify({ type: 'audio-data', audioData: base64, mimeType: blob.type, size: blob.size }));
+          };
+          reader.readAsDataURL(blob);
+        }
+      }, 0);
     }
   };
 
@@ -616,15 +620,16 @@ export default function VoiceInterviewPage() {
 
   // Start screenshot + face detection intervals when interview is active
   useEffect(() => {
-    if (!isInterviewActive) return;
+  if (!isInterviewActive) return;
 
     // Start screenshot interval based on backend-configured interval or default 10s
     const intervalSec = interviewData?.screenshotInterval && interviewData.screenshotInterval > 0 ? interviewData.screenshotInterval : 10;
     if (!screenshotIntervalRef.current) {
       screenshotIntervalRef.current = setInterval(captureScreenshot, intervalSec * 1000);
     }
-    if (!faceDetectIntervalRef.current) {
-      faceDetectIntervalRef.current = setInterval(detectFaces, 500);
+    // If FaceMesh eye tracking is active, skip extra face-detect polling to reduce load
+    if (!detectorReadyRef.current && !faceDetectIntervalRef.current) {
+      faceDetectIntervalRef.current = setInterval(detectFaces, 800);
     }
     return () => {
       if (screenshotIntervalRef.current) {
@@ -686,11 +691,14 @@ export default function VoiceInterviewPage() {
     return () => { cancelled = true; };
   }, []);
 
-  // Eye tracking loop
+  // Eye tracking loop (throttled)
   useEffect(() => {
     let raf = 0;
-    const loop = async () => {
+    let last = 0;
+    const loop = async (ts?: number) => {
       raf = requestAnimationFrame(loop);
+      if (ts && last && ts - last < 120) return; // ~8 FPS throttle
+      last = ts || performance.now();
   if (!isInterviewActive || !detectorReadyRef.current || !faceMeshModelRef.current) return;
       const video = videoRef.current;
       const canvas = overlayRef.current;
@@ -739,7 +747,7 @@ export default function VoiceInterviewPage() {
         ctx.beginPath(); ctx.arc(R_IRIS[0], R_IRIS[1], 3, 0, Math.PI*2); ctx.fill();
       } catch {}
     };
-    raf = requestAnimationFrame(loop);
+  raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   }, [isInterviewActive]);
 

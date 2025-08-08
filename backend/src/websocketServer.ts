@@ -124,11 +124,22 @@ export function setupWebSocketServer(server: Server) {
       // Initialize voice interviewer
       // Use email prefix as candidate name (schema does not have name/fullName)
       const candidateName = interview.application.candidate.user.email.split('@')[0];
+      // Build resume summary (best-effort; do not block if it fails)
+      let resumeSummary: string | undefined = undefined;
+      try {
+        const mod = await import('./services/resumeService');
+        if (interview.application.resumeUrl) {
+          resumeSummary = await mod.getResumeSummary(interview.application.resumeUrl);
+        }
+      } catch {}
+
       ws.voiceInterviewer = new SimpleVoiceInterviewer({
         jobTitle: interview.application.job.title,
         jobDescription: interview.application.job.description,
         customQuestions: interview.application.job.customQuestions ? [interview.application.job.customQuestions] : undefined,
-        candidateName
+        candidateName,
+        resumeSummary,
+        coverLetter: interview.application.coverLetter || undefined
       });
 
       // Set up voice interviewer event listeners

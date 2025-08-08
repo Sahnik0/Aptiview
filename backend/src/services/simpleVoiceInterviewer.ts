@@ -6,6 +6,8 @@ export interface VoiceInterviewConfig {
   jobDescription: string;
   customQuestions?: string[];
   candidateName?: string;
+  resumeSummary?: string;
+  coverLetter?: string;
 }
 
 export class SimpleVoiceInterviewer extends EventEmitter {
@@ -30,6 +32,9 @@ export class SimpleVoiceInterviewer extends EventEmitter {
     this.conversationContext = `You are a professional, conversational AI interviewer conducting a job interview for the position of ${this.config.jobTitle}. 
 
 Job Description: ${this.config.jobDescription}
+
+Candidate Resume Summary: ${this.config.resumeSummary || 'N/A'}
+${this.config.coverLetter ? `Candidate Cover Letter: ${this.config.coverLetter}` : ''}
 
 IMPORTANT INSTRUCTIONS:
 - Be natural, conversational, and human-like in your responses
