@@ -1,71 +1,6 @@
-import multer from 'multer';
 import path from 'path';
 import { promises as fs } from 'fs';
-import { v4 as uuidv4 } from 'uuid';
 import { uploadBase64Image, uploadBuffer } from './imageKitService';
-
-// Ensure uploads directory exists
-const uploadsDir = path.join(__dirname, '../../uploads');
-const screenshotsDir = path.join(uploadsDir, 'screenshots');
-const recordingsDir = path.join(uploadsDir, 'recordings');
-
-const ensureDirectoryExists = async (dir: string) => {
-  try {
-    await fs.access(dir);
-  } catch {
-    await fs.mkdir(dir, { recursive: true });
-  }
-};
-
-// Initialize directories
-ensureDirectoryExists(uploadsDir);
-ensureDirectoryExists(screenshotsDir);
-ensureDirectoryExists(recordingsDir);
-
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    if (file.fieldname === 'screenshot') {
-      cb(null, screenshotsDir);
-    } else if (file.fieldname === 'recording') {
-      cb(null, recordingsDir);
-    } else {
-      cb(null, uploadsDir);
-    }
-  },
-  filename: (req, file, cb) => {
-    const uniqueName = `${uuidv4()}-${Date.now()}${path.extname(file.originalname)}`;
-    cb(null, uniqueName);
-  },
-});
-
-const fileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-  if (file.fieldname === 'screenshot') {
-    // Accept only image files for screenshots
-    if (file.mimetype.startsWith('image/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only image files are allowed for screenshots'));
-    }
-  } else if (file.fieldname === 'recording') {
-    // Accept video and audio files for recordings
-    if (file.mimetype.startsWith('video/') || file.mimetype.startsWith('audio/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only video and audio files are allowed for recordings'));
-    }
-  } else {
-    cb(null, true);
-  }
-};
-
-export const upload = multer({
-  storage,
-  fileFilter,
-  limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB limit
-  },
-});
 
 export const saveBase64Screenshot = async (
   base64Data: string,
@@ -123,8 +58,10 @@ export const getFileUrl = (relativePath: string): string => {
 export const deleteFile = async (relativePath: string): Promise<void> => {
   try {
     // No-op for ImageKit (could implement delete via imagekit.deleteFile if fileId stored)
-    const fullPath = path.join(__dirname, '../../', relativePath);
-    await fs.unlink(fullPath).catch(() => {});
+    if (!relativePath.startsWith('http')) {
+      const fullPath = path.join(__dirname, '../../', relativePath);
+      await fs.unlink(fullPath).catch(() => {});
+    }
   } catch (error) {
     console.error('Error deleting file:', error);
     // Don't throw error for file deletion failures

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -51,11 +51,60 @@ export default function VoiceInterviewPage() {
   // Refs
   const wsRef = useRef<WebSocket | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const screenshotIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const faceDetectIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const [detectorInfo, setDetectorInfo] = useState<string>('');
+  const [faceCount, setFaceCount] = useState<number>(0);
+  const faceStatus = useMemo<'ok' | 'none' | 'multiple'>(() => {
+    if (faceCount === 1) return 'ok';
+    if (faceCount === 0) return 'none';
+    return 'multiple';
+  }, [faceCount]);
+  // Eye tracking (FaceMesh)
+  const faceMeshModelRef = useRef<any>(null);
+  const tfReadyRef = useRef(false);
+  const detectorReadyRef = useRef(false);
+  const faceMeshRuntimeRef = useRef<'mediapipe' | 'tfjs' | null>(null);
+  // TFJS / BlazeFace caching
+  const blazeModelRef = useRef<any>(null);
+  const tfInitRef = useRef(false);
+  const [gazeOff, setGazeOff] = useState(false);
+  const offScreenCounterRef = useRef(0);
+  const [eyesClosed, setEyesClosed] = useState(false);
+  const closedEyesCounterRef = useRef(0);
+  const [proctorWarning, setProctorWarning] = useState<string | null>(null);
+  const [eyeTrackingAvailable, setEyeTrackingAvailable] = useState(false);
+
+  // Ensure TFJS backend is initialized once with fallbacks
+  const ensureTFReady = useCallback(async () => {
+    if (tfInitRef.current) return;
+    try {
+      const tf = await import('@tensorflow/tfjs-core');
+      // Try WebGL first
+      try {
+        await import('@tensorflow/tfjs-backend-webgl');
+        await tf.setBackend('webgl');
+      } catch {}
+      // If WebGL not active, try WASM
+      try {
+        if (typeof tf.getBackend === 'function' && tf.getBackend() !== 'webgl') {
+          await import('@tensorflow/tfjs-backend-wasm');
+          await tf.setBackend('wasm');
+        }
+      } catch {}
+      // Converter utils (no-op for backends)
+      await import('@tensorflow/tfjs-converter');
+      await tf.ready();
+      tfInitRef.current = true;
+    } catch (e) {
+      console.warn('TF init failed:', e);
+    }
+  }, []);
 
   // Initialize WebSocket connection
   const connectWebSocket = useCallback(() => {
@@ -164,16 +213,38 @@ export default function VoiceInterviewPage() {
       
       // Start with a simple request to ensure we get permission prompt
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
+        video: {
+          facingMode: 'user',
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
         audio: true  // Simplified audio request
       });
 
       console.log('Media permissions granted');
       mediaStreamRef.current = stream;
 
-      // Setup video display
+      // Validate video track and setup video display
+      const vTrack = stream.getVideoTracks()[0];
+      if (!vTrack) {
+        throw new Error('No video track available. Please check your camera permissions or device.');
+      }
       if (videoRef.current) {
+        // Set critical attributes for autoplay on mobile browsers
+        videoRef.current.setAttribute('playsinline', 'true');
+        videoRef.current.setAttribute('muted', 'true');
+        videoRef.current.playsInline = true;
+        videoRef.current.muted = true;
         videoRef.current.srcObject = stream;
+        const tryPlay = () => {
+          videoRef.current?.play().catch(() => {
+            // Will be retried on next event
+          });
+        };
+        videoRef.current.onloadedmetadata = tryPlay;
+        videoRef.current.oncanplay = tryPlay;
+        // Initial attempt
+        tryPlay();
       }
 
       setIsCameraEnabled(true);
@@ -185,7 +256,7 @@ export default function VoiceInterviewPage() {
         audioOnlyStream.addTrack(track);
       });
 
-      // Setup MediaRecorder with audio-only stream for better compatibility with Whisper
+  // Setup MediaRecorder with audio-only stream for better compatibility with Whisper
       let mediaRecorder: MediaRecorder;
       
       try {
@@ -210,15 +281,14 @@ export default function VoiceInterviewPage() {
         }
         
         if (selectedFormat) {
-          // Use specific bitrate for better quality
+          // Lower bitrate and slice for lower latency
           mediaRecorder = new MediaRecorder(audioOnlyStream, { 
             mimeType: selectedFormat,
-            audioBitsPerSecond: 128000 // 128 kbps for better quality
+            audioBitsPerSecond: 96000
           });
         } else {
-          // Fallback with high bitrate
           mediaRecorder = new MediaRecorder(audioOnlyStream, {
-            audioBitsPerSecond: 128000
+            audioBitsPerSecond: 96000
           });
         }
         
@@ -230,10 +300,19 @@ export default function VoiceInterviewPage() {
 
       mediaRecorderRef.current = mediaRecorder;
 
+      // Stream shorter chunks for lower latency
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-          console.log('Audio chunk received:', event.data.size, 'bytes');
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const base64 = (reader.result as string).split(',')[1];
+              wsRef.current?.send(JSON.stringify({ type: 'audio-data', audioData: base64, mimeType: mediaRecorder.mimeType, size: event.data.size }));
+            };
+            reader.readAsDataURL(event.data);
+          } else {
+            audioChunksRef.current.push(event.data);
+          }
         }
       };
 
@@ -244,74 +323,8 @@ export default function VoiceInterviewPage() {
       };
 
       mediaRecorder.onstop = async () => {
-        try {
-          if (audioChunksRef.current.length > 0) {
-            // Use the MediaRecorder's mimeType if available, otherwise default to audio/webm
-            const mimeType = mediaRecorder.mimeType || 'audio/webm';
-            const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
-            audioChunksRef.current = [];
-
-            console.log('Audio recorded:', audioBlob.size, 'bytes, type:', mimeType);
-
-            // Check if audio is long enough (increased minimum size for longer recordings)
-            const minSizeBytes = 15000; // Increased minimum size for better quality
-            const maxSizeBytes = 10 * 1024 * 1024; // 10MB max to prevent memory issues
-            
-            if (audioBlob.size < minSizeBytes) {
-              console.warn('Audio too short, skipping transcription. Size:', audioBlob.size, 'bytes');
-              setError('Please speak for at least 3-4 seconds. Try again.');
-              return; // Don't send very short audio clips
-            }
-
-            if (audioBlob.size > maxSizeBytes) {
-              console.warn('Audio too large, skipping transcription. Size:', audioBlob.size, 'bytes');
-              setError('Audio recording too long. Please keep responses under 2 minutes.');
-              return; // Don't send very large audio clips
-            }
-
-            // Convert to base64 using FileReader for better memory management
-            try {
-              const base64Audio = await new Promise<string>((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => {
-                  const result = reader.result as string;
-                  // Remove the data URL prefix (data:audio/webm;base64,)
-                  const base64 = result.split(',')[1];
-                  resolve(base64);
-                };
-                reader.onerror = () => reject(new Error('Failed to convert audio to base64'));
-                reader.readAsDataURL(audioBlob);
-              });
-
-              // Log audio details for debugging
-              console.log('Audio details:', {
-                size: audioBlob.size,
-                type: mimeType,
-                base64Length: base64Audio.length,
-                sampleSize: base64Audio.substring(0, 50) + '...'
-              });
-
-              if (wsRef.current?.readyState === WebSocket.OPEN) {
-                console.log('Sending audio data to server... Size:', audioBlob.size, 'bytes');
-                wsRef.current.send(JSON.stringify({
-                  type: 'audio-data',
-                  audioData: base64Audio,
-                  mimeType: mimeType,
-                  size: audioBlob.size // Add size for backend validation
-                }));
-              } else {
-                console.error('WebSocket not connected, cannot send audio');
-                setError('Connection lost. Please refresh the page.');
-              }
-            } catch (conversionError) {
-              console.error('Error converting audio to base64:', conversionError);
-              setError('Failed to process audio. Please try again.');
-            }
-          }
-        } catch (error) {
-          console.error('Error processing recorded audio:', error);
-          setError('Failed to process audio recording. Please try again.');
-        }
+        // Clear any buffered chunks; chunks already streamed
+        audioChunksRef.current = [];
       };
 
     } catch (error) {
@@ -331,7 +344,7 @@ export default function VoiceInterviewPage() {
       } else {
         setError('Please allow camera and microphone access to start the interview');
       }
-    }
+  }
   };
 
   // Start recording audio
@@ -339,10 +352,10 @@ export default function VoiceInterviewPage() {
     try {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'inactive') {
         audioChunksRef.current = [];
-        // Start recording without time slicing to get one continuous audio file
-        mediaRecorderRef.current.start();
+  // Start recording with 1s slices for low latency streaming
+  mediaRecorderRef.current.start(1000);
         setIsRecording(true);
-        console.log('Started recording audio (continuous recording)');
+  console.log('Started recording audio (1s slices)');
         
         // Auto-stop after 30 seconds to prevent overly long recordings
         setTimeout(() => {
@@ -394,21 +407,98 @@ export default function VoiceInterviewPage() {
     }
   }, []);
 
+  const drawOverlay = (boxes: Array<{ x: number; y: number; width: number; height: number }>) => {
+    const video = videoRef.current;
+    const canvas = overlayRef.current;
+    if (!video || !canvas) return;
+    const vw = video.videoWidth || video.clientWidth;
+    const vh = video.videoHeight || video.clientHeight;
+    canvas.width = vw;
+    canvas.height = vh;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = boxes.length === 1 ? '#22c55e' : '#ef4444';
+    ctx.lineWidth = 3;
+    for (const b of boxes) {
+      ctx.strokeRect(b.x, b.y, b.width, b.height);
+    }
+  };
+
+  const detectFaces = useCallback(async () => {
+    const video = videoRef.current;
+  if (!video || (video.videoWidth === 0 && video.readyState < 2)) return; // ensure frame is available
+    try {
+      // Prefer native FaceDetector if available
+      const NativeFD = (window as any).FaceDetector;
+      if (NativeFD) {
+        const fd = new NativeFD({ fastMode: true, maxDetectedFaces: 3 });
+        const faces: any[] = await fd.detect(video);
+        const boxes = faces.map((f: any) => {
+          const bb = f.boundingBox || f;
+          return { x: bb.x, y: bb.y, width: bb.width, height: bb.height };
+        });
+        if (!detectorInfo) setDetectorInfo('FaceDetector (native)');
+        setFaceCount(boxes.length);
+        drawOverlay(boxes);
+        return;
+      }
+      // Robust fallback: BlazeFace first, then FaceMesh bounding from keypoints
+      try {
+        if (!blazeModelRef.current) {
+          const blazeface = await import('@tensorflow-models/blazeface');
+          await ensureTFReady();
+          blazeModelRef.current = await blazeface.load();
+        }
+        const preds: any[] = await blazeModelRef.current.estimateFaces(video as any, false);
+        if (Array.isArray(preds)) {
+          const boxes = preds.map((p: any) => {
+            const [x1, y1] = p.topLeft as [number, number];
+            const [x2, y2] = p.bottomRight as [number, number];
+            return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+          });
+          if (!detectorInfo) setDetectorInfo('BlazeFace (TFJS)');
+          setFaceCount(preds.length);
+          drawOverlay(boxes);
+          return;
+        }
+      } catch {}
+      // Fallback to FaceMesh detector (presence via keypoints)
+      if (detectorReadyRef.current && faceMeshModelRef.current) {
+        const preds = await faceMeshModelRef.current.estimateFaces(video, { flipHorizontal: true });
+        const boxes = (preds || []).map((p: any) => {
+          const pts = (p.keypoints || []).map((kp: any) => [kp.x, kp.y]);
+          if (!pts.length) return { x: 0, y: 0, width: 0, height: 0 };
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          for (const [x, y] of pts) {
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+          }
+          return { x: minX, y: minY, width: Math.max(0, maxX - minX), height: Math.max(0, maxY - minY) };
+        });
+        if (!detectorInfo) setDetectorInfo(faceMeshRuntimeRef.current === 'mediapipe' ? 'FaceMesh (Mediapipe)' : 'FaceMesh (TFJS)');
+        setFaceCount((preds || []).length);
+        drawOverlay(boxes);
+        return;
+      }
+    } catch (e) {
+      // Detection errors are non-fatal; do not spam the UI
+    }
+  }, [detectorInfo]);
+
+  // (Removed face-api.js fallback and gating helper)
+
   // New: Permission and start flow
   const handleAllowAndStart = async () => {
     setPermissionError(null);
     try {
-      await initializeMedia();
+  await initializeMedia();
       connectWebSocket();
       setShowPermissionModal(false);
       setIsInterviewActive(true);
-      // Start screenshot capture interval
-      if (interviewData?.screenshotInterval) {
-        screenshotIntervalRef.current = setInterval(
-          captureScreenshot,
-          interviewData.screenshotInterval * 1000
-        );
-      }
+      // Intervals are started via effects once video + data ready
     } catch (err: any) {
       setPermissionError(err?.message || 'Failed to access camera/microphone. Please try again.');
     }
@@ -465,6 +555,9 @@ export default function VoiceInterviewPage() {
       if (screenshotIntervalRef.current) {
         clearInterval(screenshotIntervalRef.current);
       }
+      if (faceDetectIntervalRef.current) {
+        clearInterval(faceDetectIntervalRef.current);
+      }
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getTracks().forEach(track => track.stop());
       }
@@ -490,6 +583,200 @@ export default function VoiceInterviewPage() {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [isInterviewActive, isInterviewEnded]);
+
+  // Video attach watchdog: retries attaching stream and playing until frames are available
+  useEffect(() => {
+    if (!isInterviewActive || isInterviewEnded) return;
+    const video = videoRef.current;
+    const stream = mediaStreamRef.current;
+    if (!video || !stream) return;
+
+    let cancelled = false;
+    let attempts = 0;
+    const maxAttempts = 12; // ~6s total
+    const retry = () => {
+      if (cancelled) return;
+      if (video.srcObject !== stream) {
+        video.srcObject = stream;
+      }
+      video.setAttribute('playsinline', 'true');
+      video.setAttribute('muted', 'true');
+      video.playsInline = true;
+      video.muted = true;
+      video.play().catch(() => {});
+      if ((video as HTMLVideoElement).videoWidth > 0 || attempts >= maxAttempts) return;
+      attempts += 1;
+      setTimeout(retry, 500);
+    };
+    retry();
+    return () => {
+      cancelled = true;
+    };
+  }, [isInterviewActive, isInterviewEnded]);
+
+  // Start screenshot + face detection intervals when interview is active
+  useEffect(() => {
+    if (!isInterviewActive) return;
+
+    // Start screenshot interval based on backend-configured interval or default 10s
+    const intervalSec = interviewData?.screenshotInterval && interviewData.screenshotInterval > 0 ? interviewData.screenshotInterval : 10;
+    if (!screenshotIntervalRef.current) {
+      screenshotIntervalRef.current = setInterval(captureScreenshot, intervalSec * 1000);
+    }
+    if (!faceDetectIntervalRef.current) {
+      faceDetectIntervalRef.current = setInterval(detectFaces, 500);
+    }
+    return () => {
+      if (screenshotIntervalRef.current) {
+        clearInterval(screenshotIntervalRef.current);
+        screenshotIntervalRef.current = null;
+      }
+      if (faceDetectIntervalRef.current) {
+        clearInterval(faceDetectIntervalRef.current);
+        faceDetectIntervalRef.current = null;
+      }
+    };
+  }, [isInterviewActive, interviewData, captureScreenshot, detectFaces]);
+
+  // Load FaceMesh for eye tracking (prefer MediaPipe runtime, fallback to TFJS)
+  useEffect(() => {
+    let cancelled = false;
+    async function init() {
+      try {
+        const fl = await import('@tensorflow-models/face-landmarks-detection');
+        // Try mediapipe runtime first
+        try {
+          const model = await fl.createDetector(fl.SupportedModels.MediaPipeFaceMesh, {
+            runtime: 'mediapipe',
+            refineLandmarks: true,
+            solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh',
+            maxFaces: 1,
+          } as any);
+          if (!cancelled) {
+            faceMeshModelRef.current = model;
+            faceMeshRuntimeRef.current = 'mediapipe';
+            detectorReadyRef.current = true;
+            setEyeTrackingAvailable(true);
+            setDetectorInfo('FaceMesh (Mediapipe)');
+          }
+          return;
+        } catch (e) {
+          // fallback to tfjs
+        }
+  await ensureTFReady();
+        const model = await fl.createDetector(fl.SupportedModels.MediaPipeFaceMesh, {
+          runtime: 'tfjs',
+          refineLandmarks: true,
+          maxFaces: 1,
+        } as any);
+        if (!cancelled) {
+          faceMeshModelRef.current = model;
+          faceMeshRuntimeRef.current = 'tfjs';
+          tfReadyRef.current = true;
+          detectorReadyRef.current = true;
+          setEyeTrackingAvailable(true);
+          setDetectorInfo('FaceMesh (TFJS)');
+        }
+      } catch (e) {
+        console.warn('Eye tracking init failed:', e);
+        setEyeTrackingAvailable(false);
+      }
+    }
+    init();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Eye tracking loop
+  useEffect(() => {
+    let raf = 0;
+    const loop = async () => {
+      raf = requestAnimationFrame(loop);
+  if (!isInterviewActive || !detectorReadyRef.current || !faceMeshModelRef.current) return;
+      const video = videoRef.current;
+      const canvas = overlayRef.current;
+      if (!video || !canvas || video.videoWidth === 0) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      if (canvas.width !== video.videoWidth) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+      }
+      // Do not clear here completely to avoid flicker with face boxes; draw markers only
+      try {
+        const preds = await faceMeshModelRef.current.estimateFaces(video, { flipHorizontal: true });
+        if (!preds || preds.length === 0) {
+          offScreenCounterRef.current++;
+          setGazeOff(offScreenCounterRef.current > 20);
+          return;
+        }
+        offScreenCounterRef.current = 0;
+        const pts = (preds[0].keypoints || []).map((p: any) => [p.x, p.y]);
+        if (pts.length < 400) return; // not enough keypoints
+        const L_OUT = pts[33], L_IN = pts[133];
+        const R_OUT = pts[362], R_IN = pts[263];
+        const L_UP = pts[159], L_LO = pts[145];
+        const R_UP = pts[386], R_LO = pts[374];
+        const L_IRIS = pts[468] ?? [(L_OUT[0] + L_IN[0]) / 2, (L_UP[1] + L_LO[1]) / 2];
+        const R_IRIS = pts[473] ?? [(R_OUT[0] + R_IN[0]) / 2, (R_UP[1] + R_LO[1]) / 2];
+        // Eye openness (rough EAR)
+        const ear = (Math.hypot(L_UP[0]-L_LO[0], L_UP[1]-L_LO[1]) + Math.hypot(R_UP[0]-R_LO[0], R_UP[1]-R_LO[1])) / 2
+          / (Math.hypot(L_OUT[0]-L_IN[0], L_OUT[1]-L_IN[1]) + Math.hypot(R_OUT[0]-R_IN[0], R_OUT[1]-R_IN[1]));
+        const closed = ear < 0.18;
+        if (closed) closedEyesCounterRef.current++; else closedEyesCounterRef.current = 0;
+        setEyesClosed(closedEyesCounterRef.current > 10);
+        // Gaze center (rough bounds)
+        const hRatioL = (L_IRIS[0] - L_OUT[0]) / (L_IN[0] - L_OUT[0]);
+        const hRatioR = (R_IRIS[0] - R_OUT[0]) / (R_IN[0] - R_OUT[0]);
+        const vRatioL = (L_IRIS[1] - L_UP[1]) / (L_LO[1] - L_UP[1]);
+        const vRatioR = (R_IRIS[1] - R_UP[1]) / (R_LO[1] - R_UP[1]);
+        const centerish = (r: number) => r > 0.28 && r < 0.72;
+        const centered = centerish(hRatioL) && centerish(hRatioR) && vRatioL > 0.25 && vRatioL < 0.75 && vRatioR > 0.25 && vRatioR < 0.75;
+        if (!centered) offScreenCounterRef.current++; else offScreenCounterRef.current = 0;
+        setGazeOff(offScreenCounterRef.current > 20);
+        // Draw minimal iris overlay
+        ctx.fillStyle = '#10b981';
+        ctx.beginPath(); ctx.arc(L_IRIS[0], L_IRIS[1], 3, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(R_IRIS[0], R_IRIS[1], 3, 0, Math.PI*2); ctx.fill();
+      } catch {}
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [isInterviewActive]);
+
+  // Require fullscreen and tab focus during interview (non-fatal warnings)
+  useEffect(() => {
+    if (!isInterviewActive) return;
+    const requireFull = async () => {
+      try {
+        if (!document.fullscreenElement) {
+          await document.documentElement.requestFullscreen();
+        }
+      } catch {}
+    };
+    requireFull();
+    const visHandler = () => {
+      if (document.hidden) {
+        setProctorWarning('Tab switch detected. Please stay focused on the interview.');
+      } else {
+        setProctorWarning(null);
+      }
+    };
+    const fsHandler = () => {
+      if (!document.fullscreenElement) {
+        setProctorWarning('Please keep the interview in fullscreen.');
+      } else {
+        setProctorWarning(null);
+      }
+    };
+    document.addEventListener('visibilitychange', visHandler);
+    document.addEventListener('fullscreenchange', fsHandler);
+    window.addEventListener('blur', visHandler);
+    return () => {
+      document.removeEventListener('visibilitychange', visHandler);
+      document.removeEventListener('fullscreenchange', fsHandler);
+      window.removeEventListener('blur', visHandler);
+    };
+  }, [isInterviewActive]);
 
   // Format timer mm:ss
   const formatTime = (seconds: number) => {
@@ -624,9 +911,25 @@ export default function VoiceInterviewPage() {
                         playsInline
                         className="w-full h-full object-cover"
                       />
+                      <canvas ref={overlayRef} className="absolute inset-0 w-full h-full pointer-events-none" />
                       {!isCameraEnabled && (
                         <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
                           <CameraOff className="w-12 h-12 text-gray-400" />
+                        </div>
+                      )}
+                      {isInterviewActive && (
+                        <div className={`absolute top-2 left-2 right-2 mx-auto w-fit px-3 py-1 rounded-md text-xs font-medium ${faceStatus === 'ok' ? 'bg-black/60 text-white' : faceStatus === 'none' ? 'bg-yellow-500 text-white' : 'bg-red-600 text-white'}`}>
+                          {faceStatus === 'ok' ? (gazeOff ? 'Please keep your eyes on the screen.' : (detectorInfo || 'Detector active')) : faceStatus === 'none' ? 'No face detected. Please position your face in view.' : 'Multiple faces detected. Only one person should be visible.'}
+                        </div>
+                      )}
+                      {eyesClosed && isInterviewActive && (
+                        <div className="absolute top-12 left-2 right-2 mx-auto w-fit px-3 py-1 rounded-md text-xs font-medium bg-fuchsia-600 text-white">
+                          Your eyes appear closed. Please stay attentive.
+                        </div>
+                      )}
+                      {proctorWarning && isInterviewActive && (
+                        <div className="absolute bottom-2 left-2 right-2 mx-auto w-fit px-3 py-1 rounded-md text-xs font-medium bg-orange-500 text-white">
+                          {proctorWarning}
                         </div>
                       )}
                     </div>
