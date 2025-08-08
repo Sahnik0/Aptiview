@@ -10,6 +10,8 @@ interface InterviewContext {
   candidateName?: string;
   customQuestions?: string[];
   interviewContext?: string;
+  candidateResumeUrl?: string;
+  candidateCoverLetter?: string;
 }
 
 interface InterviewQuestion {
@@ -40,6 +42,9 @@ ${this.context.customQuestions?.length ? `
 Custom Questions to Include:
 ${this.context.customQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}
 ` : ''}
+
+ ${this.context.candidateResumeUrl ? `Candidate Resume (URL): ${this.context.candidateResumeUrl}` : ''}
+ ${this.context.candidateCoverLetter ? `Candidate Cover Letter: ${this.context.candidateCoverLetter}` : ''}
 
 Guidelines:
 1. Be professional, friendly, and engaging

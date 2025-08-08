@@ -192,6 +192,12 @@ export default function RecruiterDashboard() {
     }
   };
 
+  // Render job type using a non-breaking hyphen and prevent wrapping
+  const renderJobType = (type: string) => {
+    // Replace any hyphen with non-breaking hyphen and trim spaces around it
+    return (type || "").replace(/\s*-\s*/g, "‑"); // U+2011
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50/50 p-4 sm:p-8 flex items-center justify-center dark:bg-gray-900">
@@ -309,7 +315,9 @@ export default function RecruiterDashboard() {
                           <TableRow key={job.id} className="hover:bg-gray-50">
                             <TableCell className="font-medium text-gray-900">{job.title}</TableCell>
                             <TableCell className="text-gray-600"><div className="flex items-center"><MapPin className="h-3 w-3 mr-1" />{job.location}</div></TableCell>
-                            <TableCell><Badge className={getJobTypeColor(job.type)}>{job.type}</Badge></TableCell>
+                            <TableCell className="whitespace-nowrap">
+                              <Badge className={`${getJobTypeColor(job.type)} whitespace-nowrap`}>{renderJobType(job.type)}</Badge>
+                            </TableCell>
                             <TableCell className="text-gray-600"><div className="flex items-center"><Users className="h-3 w-3 mr-1" />{job.applicantsCount ?? job._count?.applications ?? 0}</div></TableCell>
                             <TableCell className="text-gray-600">{formatDate(job.createdAt)}</TableCell>
                             <TableCell>

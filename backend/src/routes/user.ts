@@ -616,6 +616,7 @@ router.post('/jobs/:id/apply', requireClerkAuth, async (req: ClerkAuthRequest, r
   try {
     const userId = req.clerkUserId;
     const { id: jobId } = req.params;
+  const { resumeBase64, coverLetter } = req.body || {};
 
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
@@ -642,11 +643,27 @@ router.post('/jobs/:id/apply', requireClerkAuth, async (req: ClerkAuthRequest, r
       return res.status(409).json({ error: 'Already applied to this job' });
     }
 
+    let resumeUrl: string | undefined;
+    if (resumeBase64 && typeof resumeBase64 === 'string') {
+      // Expect data URL or raw base64 string
+      const base64 = resumeBase64.replace(/^data:[^;]+;base64,/, '');
+      const buffer = Buffer.from(base64, 'base64');
+      const { uploadResume } = await import('../services/imageKitService');
+      const safeName = `resume_${user.candidateProfile.id}_${Date.now()}.pdf`;
+      try {
+        resumeUrl = await uploadResume({ buffer, fileName: safeName, mimeType: 'application/pdf' });
+      } catch (e) {
+        console.error('Resume upload failed:', e);
+      }
+    }
+
     const application = await prisma.application.create({
       data: {
         jobId,
         candidateId: user.candidateProfile.id,
-        status: 'PENDING'
+        status: 'PENDING',
+        resumeUrl: resumeUrl || undefined,
+        coverLetter: coverLetter || undefined,
       }
     });
 

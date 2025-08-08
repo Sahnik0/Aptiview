@@ -12,12 +12,14 @@ const router = express.Router();
 const prisma = new PrismaClient();
 
 // Helper function to create AI interviewer instance
-const createAIInterviewer = (job: any) => {
+const createAIInterviewer = (job: any, application?: any) => {
   return new AIInterviewer({
     jobTitle: job.title,
     jobDescription: job.description,
     interviewContext: job.interviewContext || undefined,
-    customQuestions: job.customQuestions ? [job.customQuestions] : undefined
+    customQuestions: job.customQuestions ? [job.customQuestions] : undefined,
+    candidateResumeUrl: application?.resumeUrl,
+    candidateCoverLetter: application?.coverLetter,
   });
 };
 
@@ -87,7 +89,7 @@ router.post('/schedule', requireClerkAuth, async (req: ClerkAuthRequest, res: Re
 
     // Create interview record
     const now = new Date();
-    const interview = await prisma.interview.create({
+  const interview = await prisma.interview.create({
       data: {
         applicationId,
         scheduledAt: now, // Always use server time
@@ -229,8 +231,8 @@ router.post('/:uniqueLink/start', async (req: Request, res: Response) => {
       }
     });
 
-    // Get AI welcome message
-    const aiInterviewer = createAIInterviewer(interview.application.job);
+  // Get AI welcome message
+  const aiInterviewer = createAIInterviewer(interview.application.job, interview.application);
     const welcomeResponse = await aiInterviewer.getNextQuestion();
     const welcomeMessage = welcomeResponse.question;
 
@@ -250,12 +252,12 @@ router.post('/:uniqueLink/chat', async (req: Request, res: Response) => {
     const { uniqueLink } = req.params;
     const { message, isFirstMessage } = req.body;
 
-    const interview = await prisma.interview.findUnique({
+  const interview = await prisma.interview.findUnique({
       where: { uniqueLink },
       include: {
         application: {
           include: {
-            job: true
+      job: true
           }
         }
       }
@@ -266,7 +268,7 @@ router.post('/:uniqueLink/chat', async (req: Request, res: Response) => {
     }
 
     // Get AI response
-    const aiInterviewer = createAIInterviewer(interview.application.job);
+  const aiInterviewer = createAIInterviewer(interview.application.job, interview.application);
     
     // If there's existing transcript, restore conversation history
     if (interview.aiTranscript && !isFirstMessage) {
@@ -333,7 +335,7 @@ router.post('/:uniqueLink/end', async (req: Request, res: Response) => {
     const { uniqueLink } = req.params;
     const { recordingData } = req.body;
 
-    const interview = await prisma.interview.findUnique({
+  const interview = await prisma.interview.findUnique({
       where: { uniqueLink },
       include: {
         application: {
@@ -385,7 +387,7 @@ router.post('/:uniqueLink/end', async (req: Request, res: Response) => {
     }
 
     // Generate AI summary and scoring
-    const aiInterviewer = createAIInterviewer(interview.application.job);
+  const aiInterviewer = createAIInterviewer(interview.application.job, interview.application);
     const aiAnalysis = await aiInterviewer.generateInterviewSummary();
 
     // Update interview

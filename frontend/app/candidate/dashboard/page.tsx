@@ -188,6 +188,9 @@ export default function CandidateDashboardPage() {
 
   const upcomingInterviews = myInterviews.filter((i: any) => !i.endedAt).length;
 
+  // Helpers
+  const renderJobType = (type: string) => (type ? type.replace(/-/g, "\u2011") : "");
+
   // Early returns AFTER derived hooks to keep order stable
   if (loading) {
     return (
@@ -332,29 +335,38 @@ export default function CandidateDashboardPage() {
                 <>
                   {/* Desktop/tablet: table view */}
                   <div className="hidden md:block">
-                    <Table>
+                    <Table className="table-fixed w-full">
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Job</TableHead>
-                          <TableHead>Company</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead>Applied</TableHead>
-                          <TableHead className="hidden lg:table-cell">Location</TableHead>
-                          <TableHead className="hidden lg:table-cell">Type</TableHead>
-                          <TableHead>Interview</TableHead>
-                          <TableHead className="text-right">Actions</TableHead>
+                          <TableHead className="w-[48%]">Job</TableHead>
+                          <TableHead className="w-[16%]">Status</TableHead>
+                          <TableHead className="w-[20%]">Interview</TableHead>
+                          <TableHead className="w-[16%] text-right">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {sortedApplications.map((app) => (
                           <TableRow key={app.id} className="hover:bg-gray-50">
-                            <TableCell className="font-medium text-gray-900">{app.jobTitle}</TableCell>
-                            <TableCell className="text-gray-700">{app.company || "—"}</TableCell>
-                            <TableCell>
+                            <TableCell className="align-top py-3.5">
+                              <div className="font-medium text-gray-900 truncate max-w-[420px]" title={app.jobTitle}>{app.jobTitle}</div>
+                              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-gray-600">
+                                {app.company && (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gray-50 border border-gray-200"><Building2 className="h-3 w-3" /> {app.company}</span>
+                                )}
+                                {app.location && (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gray-50 border border-gray-200"><MapPin className="h-3 w-3" /> {app.location}</span>
+                                )}
+                                {app.type && (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gray-50 border border-gray-200 whitespace-nowrap">{renderJobType(app.type)}</span>
+                                )}
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gray-50 border border-gray-200 text-gray-500">Applied: {app.date}</span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="align-top py-3.5 pr-4 md:pr-6">
                               <Badge
                                 variant="outline"
                                 className={cn(
-                                  "capitalize",
+                                  "capitalize text-xs px-2 py-0.5",
                                   app.status === "Interview Scheduled"
                                     ? "bg-blue-50 text-blue-700 border-blue-200"
                                     : "bg-gray-50 text-gray-700 border-gray-200"
@@ -363,25 +375,22 @@ export default function CandidateDashboardPage() {
                                 {app.status}
                               </Badge>
                             </TableCell>
-                            <TableCell className="text-gray-700">{app.date}</TableCell>
-                            <TableCell className="hidden lg:table-cell text-gray-600">{app.location || ""}</TableCell>
-                            <TableCell className="hidden lg:table-cell text-gray-600">{app.type || ""}</TableCell>
-                            <TableCell className="text-gray-700">
+                            <TableCell className="text-gray-700 align-top py-3.5 pl-4 md:pl-6">
                               {app.interview ? (
                                 app.interview.isCompleted ? (
-                                  <Badge variant="secondary" className="text-xs">Completed</Badge>
+                                  <Badge variant="secondary" className="text-xs px-2 py-0.5">Completed</Badge>
                                 ) : app.interview.canJoin ? (
                                   <Link href={`/interview/${app.interview.uniqueLink}`}>
                                     <Button size="sm" className="h-8 text-xs bg-green-600 hover:bg-green-700">Join</Button>
                                   </Link>
                                 ) : (
-                                  <Badge variant="outline" className="text-xs">Scheduled</Badge>
+                                  <Badge variant="outline" className="text-xs px-2 py-0.5">Scheduled</Badge>
                                 )
                               ) : (
                                 <span className="text-xs text-gray-400">None</span>
                               )}
                             </TableCell>
-                            <TableCell className="text-right">
+                            <TableCell className="text-right align-top py-3.5">
                               <Button variant="ghost" size="sm" className="h-8 text-xs">View</Button>
                             </TableCell>
                           </TableRow>
@@ -461,26 +470,39 @@ export default function CandidateDashboardPage() {
               ) : (
                 <>
                   <div className="hidden md:block">
-                    <Table>
+                    <Table className="table-fixed w-full">
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Title</TableHead>
-                          <TableHead>Company</TableHead>
-                          <TableHead className="hidden lg:table-cell">Location</TableHead>
-                          <TableHead className="hidden lg:table-cell">Type</TableHead>
-                          <TableHead>Applied</TableHead>
-                          <TableHead className="text-right">Action</TableHead>
+                          <TableHead className="w-[64%]">Role</TableHead>
+                          <TableHead className="w-[16%]">Status</TableHead>
+                          <TableHead className="w-[20%] text-right">Action</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {sortedJobs.slice(0, 8).map((job) => (
                           <TableRow key={job.id} className="hover:bg-gray-50">
-                            <TableCell className="font-medium text-gray-900">{job.title}</TableCell>
-                            <TableCell className="text-gray-700">{job.company || "—"}</TableCell>
-                            <TableCell className="hidden lg:table-cell text-gray-600">{job.location || ""}</TableCell>
-                            <TableCell className="hidden lg:table-cell text-gray-600">{job.type || ""}</TableCell>
-                            <TableCell>{job.alreadyApplied ? <Badge variant="outline" className="text-xs">Applied</Badge> : <span className="text-xs text-gray-400">—</span>}</TableCell>
-                            <TableCell className="text-right">
+                            <TableCell className="align-top py-3.5">
+                              <div className="font-medium text-gray-900 truncate max-w-[520px]" title={job.title}>{job.title}</div>
+                              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-gray-600">
+                                {job.company && (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gray-50 border border-gray-200"><Building2 className="h-3 w-3" /> {job.company}</span>
+                                )}
+                                {job.location && (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gray-50 border border-gray-200"><MapPin className="h-3 w-3" /> {job.location}</span>
+                                )}
+                                {job.type && (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gray-50 border border-gray-200 whitespace-nowrap">{renderJobType(job.type)}</span>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className="align-top py-3.5">
+                              {job.alreadyApplied ? (
+                                <Badge variant="outline" className="text-xs px-2 py-0.5">Applied</Badge>
+                              ) : (
+                                <span className="text-xs text-gray-400">Not applied</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right align-top py-3.5">
                               {job.alreadyApplied ? (
                                 <Button disabled className="h-8 text-xs bg-gray-300 cursor-not-allowed">Applied</Button>
                               ) : (
@@ -503,12 +525,12 @@ export default function CandidateDashboardPage() {
                             <div className="text-xs text-gray-600 flex items-center gap-1"><Building2 className="h-3.5 w-3.5" /> {job.company || "—"}</div>
                           </div>
                           {job.alreadyApplied ? (
-                            <Badge variant="outline" className="text-xs">Applied</Badge>
+                            <Badge variant="outline" className="text-xs px-2 py-0.5">Applied</Badge>
                           ) : null}
                         </div>
-                        <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-gray-600">
-                          {job.location && <span className="px-2 py-1 rounded-md bg-gray-50 border border-gray-200 flex items-center gap-1"><MapPin className="h-3 w-3" /> {job.location}</span>}
-                          {job.type && <span className="px-2 py-1 rounded-md bg-gray-50 border border-gray-200">{job.type}</span>}
+                        <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-gray-600">
+                          {job.location && <span className="px-1.5 py-0.5 rounded-md bg-gray-50 border border-gray-200 flex items-center gap-1"><MapPin className="h-3 w-3" /> {job.location}</span>}
+                          {job.type && <span className="px-1.5 py-0.5 rounded-md bg-gray-50 border border-gray-200 whitespace-nowrap">{renderJobType(job.type)}</span>}
                         </div>
                         <div className="mt-3 flex justify-end">
                           {job.alreadyApplied ? (
