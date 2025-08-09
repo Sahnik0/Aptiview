@@ -1,4 +1,5 @@
-import fetch from 'node-fetch';
+// Use dynamic import for node-fetch (ESM)
+let fetch: typeof import('node-fetch').default;
 import pdfParse from 'pdf-parse';
 import OpenAI from 'openai';
 
@@ -8,6 +9,9 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export async function getResumeSummary(url?: string): Promise<string | undefined> {
+  if (!fetch) {
+    fetch = (await import('node-fetch')).default;
+  }
   try {
     if (!url) return undefined;
     const now = Date.now();
