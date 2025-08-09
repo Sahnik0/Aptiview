@@ -58,6 +58,7 @@ export default function VoiceInterviewPage() {
   const faceDetectIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const vadRef = useRef<{ctx: AudioContext; analyser: AnalyserNode; source: MediaStreamAudioSourceNode; data: Uint8Array; silenceMs: number; lastVoice: number} | null>(null);
   const [detectorInfo, setDetectorInfo] = useState<string>('');
   const [faceCount, setFaceCount] = useState<number>(0);
   const faceStatus = useMemo<'ok' | 'none' | 'multiple'>(() => {
@@ -79,6 +80,7 @@ export default function VoiceInterviewPage() {
   const closedEyesCounterRef = useRef(0);
   const [proctorWarning, setProctorWarning] = useState<string | null>(null);
   const [eyeTrackingAvailable, setEyeTrackingAvailable] = useState(false);
+  const [terminatedByFullscreen, setTerminatedByFullscreen] = useState(false);
 
   // Ensure TFJS backend is initialized once with fallbacks
   const ensureTFReady = useCallback(async () => {
@@ -215,10 +217,17 @@ export default function VoiceInterviewPage() {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: 'user',
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          width: { ideal: 960, max: 1280 },
+          height: { ideal: 540, max: 720 },
+          frameRate: { ideal: 24, max: 30 },
         },
-        audio: true  // Simplified audio request
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 48000,
+          channelCount: 1
+        }
       });
 
       console.log('Media permissions granted');
@@ -255,6 +264,17 @@ export default function VoiceInterviewPage() {
       stream.getAudioTracks().forEach(track => {
         audioOnlyStream.addTrack(track);
       });
+
+      // Setup lightweight VAD (silence detection) to auto-stop
+      try {
+        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const source = ctx.createMediaStreamSource(audioOnlyStream);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 2048;
+        source.connect(analyser);
+        const data = new Uint8Array(analyser.fftSize);
+        vadRef.current = { ctx, analyser, source, data, silenceMs: 0, lastVoice: Date.now() };
+      } catch {}
 
   // Setup MediaRecorder with audio-only stream for better compatibility with Whisper
       let mediaRecorder: MediaRecorder;
@@ -300,19 +320,10 @@ export default function VoiceInterviewPage() {
 
       mediaRecorderRef.current = mediaRecorder;
 
-      // Stream shorter chunks for lower latency
+      // Collect chunks and send once per utterance on stop for better transcription quality
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
-          if (wsRef.current?.readyState === WebSocket.OPEN) {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              const base64 = (reader.result as string).split(',')[1];
-              wsRef.current?.send(JSON.stringify({ type: 'audio-data', audioData: base64, mimeType: mediaRecorder.mimeType, size: event.data.size }));
-            };
-            reader.readAsDataURL(event.data);
-          } else {
-            audioChunksRef.current.push(event.data);
-          }
+          audioChunksRef.current.push(event.data);
         }
       };
 
@@ -352,8 +363,34 @@ export default function VoiceInterviewPage() {
     try {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'inactive') {
         audioChunksRef.current = [];
-  // Start recording with 1s slices for low latency streaming
-  mediaRecorderRef.current.start(1000);
+  // Start recording (no timeslice) and collect chunks until stop
+  mediaRecorderRef.current.start();
+  // Start VAD loop
+  if (vadRef.current) {
+    const { analyser, data } = vadRef.current;
+    const tick = () => {
+      if (!isRecording || !vadRef.current) return;
+  (analyser as any).getByteTimeDomainData(data as any);
+      // Compute simple RMS
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) {
+        const v = (data[i] - 128) / 128;
+        sum += v * v;
+      }
+      const rms = Math.sqrt(sum / data.length);
+      const now = Date.now();
+      if (rms > 0.02) {
+        vadRef.current.lastVoice = now;
+      }
+      // Auto-stop if 1200ms of silence after at least 2.5s of speech window
+      if (now - vadRef.current.lastVoice > 1200) {
+        stopRecording();
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
         setIsRecording(true);
   console.log('Started recording audio (1s slices)');
         
@@ -383,11 +420,28 @@ export default function VoiceInterviewPage() {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
       console.log('Stopped recording audio');
+      // Reset VAD trackers
+      if (vadRef.current) {
+        vadRef.current.lastVoice = Date.now();
+      }
+      // After stop, combine chunks and send a single blob
+      setTimeout(() => {
+        if (audioChunksRef.current.length > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
+          const blob = new Blob(audioChunksRef.current, { type: mediaRecorderRef.current?.mimeType || 'audio/webm' });
+          audioChunksRef.current = [];
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const base64 = (reader.result as string).split(',')[1];
+            wsRef.current?.send(JSON.stringify({ type: 'audio-data', audioData: base64, mimeType: blob.type, size: blob.size }));
+          };
+          reader.readAsDataURL(blob);
+        }
+      }, 0);
     }
   };
 
-  // Screenshot capture
-  const captureScreenshot = useCallback(() => {
+  // Screenshot capture (optional reason for proctoring)
+  const captureScreenshot = useCallback((reason?: string) => {
     if (videoRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
       const canvas = document.createElement('canvas');
       const context = canvas.getContext('2d');
@@ -401,7 +455,8 @@ export default function VoiceInterviewPage() {
         
         wsRef.current.send(JSON.stringify({
           type: 'screenshot',
-          imageData: imageData.split(',')[1] // Remove data:image/jpeg;base64, prefix
+    imageData: imageData.split(',')[1], // Remove data:image/jpeg;base64, prefix
+    reason: reason || undefined
         }));
       }
     }
@@ -439,6 +494,12 @@ export default function VoiceInterviewPage() {
           return { x: bb.x, y: bb.y, width: bb.width, height: bb.height };
         });
         if (!detectorInfo) setDetectorInfo('FaceDetector (native)');
+        if (faceCount <= 1 && boxes.length > 1) {
+          captureScreenshot('multiple-faces');
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: 'proctor-event', event: 'multiple-faces', at: Date.now() }));
+          }
+        }
         setFaceCount(boxes.length);
         drawOverlay(boxes);
         return;
@@ -458,6 +519,12 @@ export default function VoiceInterviewPage() {
             return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
           });
           if (!detectorInfo) setDetectorInfo('BlazeFace (TFJS)');
+          if (faceCount <= 1 && preds.length > 1) {
+            captureScreenshot('multiple-faces');
+            if (wsRef.current?.readyState === WebSocket.OPEN) {
+              wsRef.current.send(JSON.stringify({ type: 'proctor-event', event: 'multiple-faces', at: Date.now() }));
+            }
+          }
           setFaceCount(preds.length);
           drawOverlay(boxes);
           return;
@@ -479,14 +546,21 @@ export default function VoiceInterviewPage() {
           return { x: minX, y: minY, width: Math.max(0, maxX - minX), height: Math.max(0, maxY - minY) };
         });
         if (!detectorInfo) setDetectorInfo(faceMeshRuntimeRef.current === 'mediapipe' ? 'FaceMesh (Mediapipe)' : 'FaceMesh (TFJS)');
-        setFaceCount((preds || []).length);
+        const count = (preds || []).length;
+        if (faceCount <= 1 && count > 1) {
+          captureScreenshot('multiple-faces');
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: 'proctor-event', event: 'multiple-faces', at: Date.now() }));
+          }
+        }
+        setFaceCount(count);
         drawOverlay(boxes);
         return;
       }
     } catch (e) {
       // Detection errors are non-fatal; do not spam the UI
     }
-  }, [detectorInfo]);
+  }, [detectorInfo, faceCount, captureScreenshot]);
 
   // (Removed face-api.js fallback and gating helper)
 
@@ -498,6 +572,14 @@ export default function VoiceInterviewPage() {
       connectWebSocket();
       setShowPermissionModal(false);
       setIsInterviewActive(true);
+      // Slight delay before requesting fullscreen to avoid jank
+      setTimeout(async () => {
+        try {
+          if (!document.fullscreenElement) {
+            await document.documentElement.requestFullscreen();
+          }
+        } catch {}
+      }, 300);
       // Intervals are started via effects once video + data ready
     } catch (err: any) {
       setPermissionError(err?.message || 'Failed to access camera/microphone. Please try again.');
@@ -614,17 +696,13 @@ export default function VoiceInterviewPage() {
     };
   }, [isInterviewActive, isInterviewEnded]);
 
-  // Start screenshot + face detection intervals when interview is active
+  // Start face detection interval when interview is active (screenshots occur only on violations)
   useEffect(() => {
-    if (!isInterviewActive) return;
-
-    // Start screenshot interval based on backend-configured interval or default 10s
-    const intervalSec = interviewData?.screenshotInterval && interviewData.screenshotInterval > 0 ? interviewData.screenshotInterval : 10;
-    if (!screenshotIntervalRef.current) {
-      screenshotIntervalRef.current = setInterval(captureScreenshot, intervalSec * 1000);
-    }
-    if (!faceDetectIntervalRef.current) {
-      faceDetectIntervalRef.current = setInterval(detectFaces, 500);
+  if (!isInterviewActive) return;
+    // No periodic screenshots
+    // If FaceMesh eye tracking is active, skip extra face-detect polling to reduce load
+    if (!detectorReadyRef.current && !faceDetectIntervalRef.current) {
+      faceDetectIntervalRef.current = setInterval(detectFaces, 800);
     }
     return () => {
       if (screenshotIntervalRef.current) {
@@ -686,11 +764,14 @@ export default function VoiceInterviewPage() {
     return () => { cancelled = true; };
   }, []);
 
-  // Eye tracking loop
+  // Eye tracking loop (throttled)
   useEffect(() => {
     let raf = 0;
-    const loop = async () => {
+    let last = 0;
+    const loop = async (ts?: number) => {
       raf = requestAnimationFrame(loop);
+      if (ts && last && ts - last < 120) return; // ~8 FPS throttle
+      last = ts || performance.now();
   if (!isInterviewActive || !detectorReadyRef.current || !faceMeshModelRef.current) return;
       const video = videoRef.current;
       const canvas = overlayRef.current;
@@ -732,18 +813,26 @@ export default function VoiceInterviewPage() {
         const centerish = (r: number) => r > 0.28 && r < 0.72;
         const centered = centerish(hRatioL) && centerish(hRatioR) && vRatioL > 0.25 && vRatioL < 0.75 && vRatioR > 0.25 && vRatioR < 0.75;
         if (!centered) offScreenCounterRef.current++; else offScreenCounterRef.current = 0;
-        setGazeOff(offScreenCounterRef.current > 20);
+        const nowOff = offScreenCounterRef.current > 20;
+        const wasOff = gazeOff;
+        setGazeOff(nowOff);
+        if (!wasOff && nowOff) {
+          captureScreenshot('gaze-off-screen');
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: 'proctor-event', event: 'gaze-off-screen', at: Date.now() }));
+          }
+        }
         // Draw minimal iris overlay
         ctx.fillStyle = '#10b981';
         ctx.beginPath(); ctx.arc(L_IRIS[0], L_IRIS[1], 3, 0, Math.PI*2); ctx.fill();
         ctx.beginPath(); ctx.arc(R_IRIS[0], R_IRIS[1], 3, 0, Math.PI*2); ctx.fill();
       } catch {}
     };
-    raf = requestAnimationFrame(loop);
+  raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [isInterviewActive]);
+  }, [isInterviewActive, gazeOff, captureScreenshot]);
 
-  // Require fullscreen and tab focus during interview (non-fatal warnings)
+  // Require fullscreen and tab focus; terminate if leaving fullscreen
   useEffect(() => {
     if (!isInterviewActive) return;
     const requireFull = async () => {
@@ -763,7 +852,14 @@ export default function VoiceInterviewPage() {
     };
     const fsHandler = () => {
       if (!document.fullscreenElement) {
-        setProctorWarning('Please keep the interview in fullscreen.');
+        setProctorWarning('Interview terminated: left fullscreen.');
+        setTerminatedByFullscreen(true);
+        if (wsRef.current) {
+          try { wsRef.current.close(1000, 'Left fullscreen'); } catch {}
+        }
+        if (screenshotIntervalRef.current) { clearInterval(screenshotIntervalRef.current); screenshotIntervalRef.current = null; }
+        if (faceDetectIntervalRef.current) { clearInterval(faceDetectIntervalRef.current); faceDetectIntervalRef.current = null; }
+        setIsInterviewActive(false);
       } else {
         setProctorWarning(null);
       }
@@ -777,6 +873,19 @@ export default function VoiceInterviewPage() {
       window.removeEventListener('blur', visHandler);
     };
   }, [isInterviewActive]);
+
+  const restartInterview = async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen().catch(() => {});
+      }
+      setTerminatedByFullscreen(false);
+      setIsInterviewEnded(false);
+      setTimeLeft(10 * 60);
+      connectWebSocket();
+      setIsInterviewActive(true);
+    } catch {}
+  };
 
   // Format timer mm:ss
   const formatTime = (seconds: number) => {
@@ -863,6 +972,17 @@ export default function VoiceInterviewPage() {
       {!showPermissionModal && (
         <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
           <div className="max-w-6xl mx-auto">
+            {terminatedByFullscreen && (
+              <Card className="mb-4 border-red-300 bg-red-50">
+                <CardHeader>
+                  <CardTitle className="text-red-700">Interview terminated</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="mb-3 text-red-700">You exited fullscreen. The session was terminated. You can restart the interview now.</p>
+                  <Button onClick={restartInterview} className="bg-red-600 hover:bg-red-700">Restart Interview</Button>
+                </CardContent>
+              </Card>
+            )}
             {/* Header */}
             <Card className="mb-6">
               <CardHeader>

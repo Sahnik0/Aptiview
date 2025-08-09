@@ -40,6 +40,7 @@ interface InterviewResult {
       };
     };
     job: {
+  id?: string;
       title: string;
     };
   };
@@ -155,6 +156,18 @@ export default function RecruiterInterviewDashboard() {
     });
   }, [interviews, query, statusFilter]);
 
+  // Group by job, then by candidate
+  const groupedByJob = useMemo(() => {
+    const groups = new Map<string, { jobKey: string; jobTitle: string; items: InterviewResult[] }>();
+    for (const int of filteredInterviews) {
+      const key = int.application.job.id || int.application.job.title;
+      if (!groups.has(key)) groups.set(key, { jobKey: key, jobTitle: int.application.job.title, items: [] });
+      groups.get(key)!.items.push(int);
+    }
+    // Sort groups by job title
+    return Array.from(groups.values()).sort((a, b) => a.jobTitle.localeCompare(b.jobTitle));
+  }, [filteredInterviews]);
+
   const getStatusBadge = (interview: InterviewResult) => {
     if (interview.endedAt) {
       return <Badge className="bg-green-100 text-green-800">Completed</Badge>;
@@ -251,43 +264,55 @@ export default function RecruiterInterviewDashboard() {
 
         {/* Main Content */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Interview List */}
+          {/* Interview List (Grouped by Job) */}
           <div className="lg:col-span-2">
             <Card className="border border-gray-200 bg-white/70 backdrop-blur">
               <CardHeader className="pb-2">
-                <CardTitle>Interviews</CardTitle>
+                <CardTitle>Interviews by Job</CardTitle>
               </CardHeader>
               <CardContent>
                 <ScrollArea className="h-[640px] pr-2">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {filteredInterviews.map((interview) => (
-                      <button
-                        key={interview.id}
-                        className={`text-left rounded-xl border transition-all p-4 bg-white hover:shadow-md focus:outline-none ${
-                          selectedInterview?.id === interview.id ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-gray-200'
-                        }`}
-                        onClick={() => setSelectedInterview(interview)}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <h3 className="font-semibold leading-tight line-clamp-1">{interview.application.job.title}</h3>
-                            <p className="text-sm text-muted-foreground line-clamp-1">{interview.application.candidate.user.email}</p>
-                            <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-                              <Calendar className="h-3.5 w-3.5" />
-                              <span>{new Date(interview.scheduledAt).toLocaleString()}</span>
-                            </div>
-                          </div>
-                          <div className="flex flex-col items-end gap-2">
-                            {getStatusBadge(interview)}
-                            {interview.score && (
-                              <span className="text-sm font-bold">{interview.score.totalScore.toFixed(1)}/10</span>
-                            )}
-                          </div>
+                  <div className="space-y-6">
+                    {groupedByJob.map((group) => (
+                      <div key={group.jobTitle} className="border rounded-xl bg-white">
+                        <div className="px-4 py-3 border-b flex items-center justify-between">
+                          <div className="font-semibold">{group.jobTitle}</div>
+                          <Badge variant="secondary">{group.items.length} candidate(s)</Badge>
                         </div>
-                      </button>
+                        <div className="divide-y">
+                          {group.items
+                            .sort((a, b) => a.application.candidate.user.email.localeCompare(b.application.candidate.user.email))
+                            .map((interview) => (
+                            <button
+                              key={interview.id}
+                              className={`w-full text-left px-4 py-3 hover:bg-gray-50 focus:outline-none ${selectedInterview?.id === interview.id ? 'bg-indigo-50' : ''}`}
+                              onClick={() => setSelectedInterview(interview)}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <div className="text-sm font-medium">{interview.application.candidate.user.email}</div>
+                                  <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                                    <Calendar className="h-3.5 w-3.5" />
+                                    <span>{new Date(interview.scheduledAt).toLocaleString()}</span>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  {getStatusBadge(interview)}
+                                  {interview.score && (
+                                    <span className="text-sm font-bold">{interview.score.totalScore.toFixed(1)}/10</span>
+                                  )}
+                                </div>
+                              </div>
+                            </button>
+                          ))}
+                          {group.items.length === 0 && (
+                            <div className="px-4 py-6 text-sm text-muted-foreground">No candidates yet.</div>
+                          )}
+                        </div>
+                      </div>
                     ))}
-                    {filteredInterviews.length === 0 && (
-                      <div className="col-span-full text-center text-sm text-muted-foreground py-10">No interviews match your filters.</div>
+                    {groupedByJob.length === 0 && (
+                      <div className="text-center text-sm text-muted-foreground py-10">No interviews match your filters.</div>
                     )}
                   </div>
                 </ScrollArea>

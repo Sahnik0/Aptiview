@@ -21,7 +21,9 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }));
-app.use(express.json());
+// Increase body size limits to handle base64-encoded resumes
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '15mb' }));
+app.use(express.urlencoded({ extended: true, limit: process.env.JSON_BODY_LIMIT || '15mb' }));
 
 // Configure Clerk middleware with proper environment variables
 app.use(clerkMiddleware({

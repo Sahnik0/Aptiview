@@ -57,3 +57,21 @@ export async function uploadBuffer(params: {
   });
   return res;
 }
+
+export async function uploadResume(params: {
+  buffer: Buffer;
+  fileName: string;
+  mimeType?: string; // e.g., application/pdf
+}): Promise<string> {
+  if (!publicKey || !privateKey || !urlEndpoint) {
+    throw new Error('ImageKit not configured');
+  }
+  const { buffer, fileName } = params;
+  const res = await imagekit.upload({
+    file: buffer,
+    fileName,
+    folder: '/aptiview/resumes',
+    useUniqueFileName: true,
+  });
+  return res.url as string;
+}

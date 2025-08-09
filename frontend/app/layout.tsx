@@ -5,12 +5,13 @@ import {
   SignedIn,
 } from "@clerk/nextjs";
 import "./globals.css"
+import "lenis/dist/lenis.css"
 import { Inter } from "next/font/google"
 import { ThemeProvider } from "@/components/theme-provider"
 import { MainNavigation } from "@/components/main-nav"
-import AuthHeaderButtons from "@/components/AuthHeaderButtons";
 import { GlobalUserProvisioner } from "@/components/GlobalUserProvisioner";
 import { RoleRedirector } from "@/components/RoleRedirector";
+import LenisRoot from "@/components/LenisRoot";
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -73,16 +74,18 @@ export default function RootLayout({
       </SignedIn>
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="light"
-          enableSystem
-          disableTransitionOnChange={false}
-          storageKey="talent-ai-theme"
-        >
-          <MainNavigation />
-          <div className="pt-16 bg-gray-50/50 dark:bg-gray-900 min-h-[calc(100vh-4rem)]">{children}</div>
-        </ThemeProvider>
+        <LenisRoot>
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="light"
+            enableSystem
+            disableTransitionOnChange={false}
+            storageKey="talent-ai-theme"
+          >
+            <MainNavigation />
+            <div className="pt-16 bg-gray-50/50 dark:bg-gray-900 min-h-[calc(100vh-4rem)]">{children}</div>
+          </ThemeProvider>
+        </LenisRoot>
       </body>
     </html>
     </ClerkProvider>

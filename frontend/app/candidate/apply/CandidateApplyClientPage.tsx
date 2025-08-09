@@ -150,6 +150,18 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
       const token = await getToken();
       if (!token) throw new Error("Not authenticated");
       
+      // Convert CV file to base64 (data URL) if present using FileReader (browser-safe)
+      let resumeBase64: string | undefined = undefined;
+      if (formData.cvFile) {
+        const file = formData.cvFile;
+        resumeBase64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = (err) => reject(err);
+          reader.readAsDataURL(file);
+        });
+      }
+      
       const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
       const res = await fetch(`${backendUrl}/api/users/jobs/${job.id}/apply`, {
         method: "POST",
@@ -157,6 +169,10 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`,
         },
+        body: JSON.stringify({
+          resumeBase64,
+          coverLetter: formData.coverLetter || undefined,
+        }),
       });
       
       if (!res.ok) {
