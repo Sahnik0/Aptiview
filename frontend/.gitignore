@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+.vscode
 
 # next.js
 /.next/
@@ -27,3 +28,5 @@ yarn-error.log*
 next-env.d.ts
 # clerk configuration (can include secrets)
 /.clerk/
+.vscode
+/.vscode/
