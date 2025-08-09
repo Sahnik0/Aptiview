@@ -55,10 +55,13 @@ export default function VoiceInterviewPage() {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const screenshotIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const faceDetectIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  // Removed interval-based face detection refs (using RAF + BlazeFace)
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const vadRef = useRef<{ctx: AudioContext; analyser: AnalyserNode; source: MediaStreamAudioSourceNode; data: Uint8Array; silenceMs: number; lastVoice: number} | null>(null);
+  const blazeBoxesRef = useRef<Array<{ x: number; y: number; width: number; height: number }>>([]);
+  const lastBlazeTsRef = useRef<number>(0);
+  const blazeBusyRef = useRef<boolean>(false);
   const [detectorInfo, setDetectorInfo] = useState<string>('');
   const [faceCount, setFaceCount] = useState<number>(0);
   const faceStatus = useMemo<'ok' | 'none' | 'multiple'>(() => {
@@ -126,7 +129,7 @@ export default function VoiceInterviewPage() {
         setError(null);
       };
 
-      wsRef.current.onmessage = async (event) => {
+  wsRef.current.onmessage = async (event) => {
         const message = JSON.parse(event.data);
         console.log('Received message:', message.type);
 
@@ -334,8 +337,34 @@ export default function VoiceInterviewPage() {
       };
 
       mediaRecorder.onstop = async () => {
-        // Clear any buffered chunks; chunks already streamed
-        audioChunksRef.current = [];
+        try {
+          const chunks = audioChunksRef.current;
+          audioChunksRef.current = [];
+          if (!chunks || chunks.length === 0) return;
+          const mime = mediaRecorder.mimeType || 'audio/webm';
+          const blob = new Blob(chunks, { type: mime });
+          // Client-side guard for too-small audio that server would reject
+          if (blob.size < 8000) {
+            console.warn('Recorded audio too short to transcribe (size:', blob.size, ')');
+            return;
+          }
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const base64 = (reader.result as string).split(',')[1];
+              try {
+                wsRef.current?.send(
+                  JSON.stringify({ type: 'audio-data', audioData: base64, mimeType: blob.type, size: blob.size })
+                );
+              } catch (e) {
+                console.error('Failed to send audio-data:', e);
+              }
+            };
+            reader.readAsDataURL(blob);
+          }
+        } catch (e) {
+          console.error('onstop assembly error:', e);
+        }
       };
 
     } catch (error) {
@@ -424,19 +453,6 @@ export default function VoiceInterviewPage() {
       if (vadRef.current) {
         vadRef.current.lastVoice = Date.now();
       }
-      // After stop, combine chunks and send a single blob
-      setTimeout(() => {
-        if (audioChunksRef.current.length > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
-          const blob = new Blob(audioChunksRef.current, { type: mediaRecorderRef.current?.mimeType || 'audio/webm' });
-          audioChunksRef.current = [];
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const base64 = (reader.result as string).split(',')[1];
-            wsRef.current?.send(JSON.stringify({ type: 'audio-data', audioData: base64, mimeType: blob.type, size: blob.size }));
-          };
-          reader.readAsDataURL(blob);
-        }
-      }, 0);
     }
   };
 
@@ -462,105 +478,7 @@ export default function VoiceInterviewPage() {
     }
   }, []);
 
-  const drawOverlay = (boxes: Array<{ x: number; y: number; width: number; height: number }>) => {
-    const video = videoRef.current;
-    const canvas = overlayRef.current;
-    if (!video || !canvas) return;
-    const vw = video.videoWidth || video.clientWidth;
-    const vh = video.videoHeight || video.clientHeight;
-    canvas.width = vw;
-    canvas.height = vh;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = boxes.length === 1 ? '#22c55e' : '#ef4444';
-    ctx.lineWidth = 3;
-    for (const b of boxes) {
-      ctx.strokeRect(b.x, b.y, b.width, b.height);
-    }
-  };
-
-  const detectFaces = useCallback(async () => {
-    const video = videoRef.current;
-  if (!video || (video.videoWidth === 0 && video.readyState < 2)) return; // ensure frame is available
-    try {
-      // Prefer native FaceDetector if available
-      const NativeFD = (window as any).FaceDetector;
-      if (NativeFD) {
-        const fd = new NativeFD({ fastMode: true, maxDetectedFaces: 3 });
-        const faces: any[] = await fd.detect(video);
-        const boxes = faces.map((f: any) => {
-          const bb = f.boundingBox || f;
-          return { x: bb.x, y: bb.y, width: bb.width, height: bb.height };
-        });
-        if (!detectorInfo) setDetectorInfo('FaceDetector (native)');
-        if (faceCount <= 1 && boxes.length > 1) {
-          captureScreenshot('multiple-faces');
-          if (wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({ type: 'proctor-event', event: 'multiple-faces', at: Date.now() }));
-          }
-        }
-        setFaceCount(boxes.length);
-        drawOverlay(boxes);
-        return;
-      }
-      // Robust fallback: BlazeFace first, then FaceMesh bounding from keypoints
-      try {
-        if (!blazeModelRef.current) {
-          const blazeface = await import('@tensorflow-models/blazeface');
-          await ensureTFReady();
-          blazeModelRef.current = await blazeface.load();
-        }
-        const preds: any[] = await blazeModelRef.current.estimateFaces(video as any, false);
-        if (Array.isArray(preds)) {
-          const boxes = preds.map((p: any) => {
-            const [x1, y1] = p.topLeft as [number, number];
-            const [x2, y2] = p.bottomRight as [number, number];
-            return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
-          });
-          if (!detectorInfo) setDetectorInfo('BlazeFace (TFJS)');
-          if (faceCount <= 1 && preds.length > 1) {
-            captureScreenshot('multiple-faces');
-            if (wsRef.current?.readyState === WebSocket.OPEN) {
-              wsRef.current.send(JSON.stringify({ type: 'proctor-event', event: 'multiple-faces', at: Date.now() }));
-            }
-          }
-          setFaceCount(preds.length);
-          drawOverlay(boxes);
-          return;
-        }
-      } catch {}
-      // Fallback to FaceMesh detector (presence via keypoints)
-      if (detectorReadyRef.current && faceMeshModelRef.current) {
-        const preds = await faceMeshModelRef.current.estimateFaces(video, { flipHorizontal: true });
-        const boxes = (preds || []).map((p: any) => {
-          const pts = (p.keypoints || []).map((kp: any) => [kp.x, kp.y]);
-          if (!pts.length) return { x: 0, y: 0, width: 0, height: 0 };
-          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-          for (const [x, y] of pts) {
-            if (x < minX) minX = x;
-            if (y < minY) minY = y;
-            if (x > maxX) maxX = x;
-            if (y > maxY) maxY = y;
-          }
-          return { x: minX, y: minY, width: Math.max(0, maxX - minX), height: Math.max(0, maxY - minY) };
-        });
-        if (!detectorInfo) setDetectorInfo(faceMeshRuntimeRef.current === 'mediapipe' ? 'FaceMesh (Mediapipe)' : 'FaceMesh (TFJS)');
-        const count = (preds || []).length;
-        if (faceCount <= 1 && count > 1) {
-          captureScreenshot('multiple-faces');
-          if (wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({ type: 'proctor-event', event: 'multiple-faces', at: Date.now() }));
-          }
-        }
-        setFaceCount(count);
-        drawOverlay(boxes);
-        return;
-      }
-    } catch (e) {
-      // Detection errors are non-fatal; do not spam the UI
-    }
-  }, [detectorInfo, faceCount, captureScreenshot]);
+  // Removed drawOverlay/detectFaces: using BlazeFace in RAF loop instead
 
   // (Removed face-api.js fallback and gating helper)
 
@@ -637,9 +555,6 @@ export default function VoiceInterviewPage() {
       if (screenshotIntervalRef.current) {
         clearInterval(screenshotIntervalRef.current);
       }
-      if (faceDetectIntervalRef.current) {
-        clearInterval(faceDetectIntervalRef.current);
-      }
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getTracks().forEach(track => track.stop());
       }
@@ -696,25 +611,7 @@ export default function VoiceInterviewPage() {
     };
   }, [isInterviewActive, isInterviewEnded]);
 
-  // Start face detection interval when interview is active (screenshots occur only on violations)
-  useEffect(() => {
-  if (!isInterviewActive) return;
-    // No periodic screenshots
-    // If FaceMesh eye tracking is active, skip extra face-detect polling to reduce load
-    if (!detectorReadyRef.current && !faceDetectIntervalRef.current) {
-      faceDetectIntervalRef.current = setInterval(detectFaces, 800);
-    }
-    return () => {
-      if (screenshotIntervalRef.current) {
-        clearInterval(screenshotIntervalRef.current);
-        screenshotIntervalRef.current = null;
-      }
-      if (faceDetectIntervalRef.current) {
-        clearInterval(faceDetectIntervalRef.current);
-        faceDetectIntervalRef.current = null;
-      }
-    };
-  }, [isInterviewActive, interviewData, captureScreenshot, detectFaces]);
+  // Removed interval-based face detection effect; handled in RAF loop
 
   // Load FaceMesh for eye tracking (prefer MediaPipe runtime, fallback to TFJS)
   useEffect(() => {
@@ -735,7 +632,7 @@ export default function VoiceInterviewPage() {
             faceMeshRuntimeRef.current = 'mediapipe';
             detectorReadyRef.current = true;
             setEyeTrackingAvailable(true);
-            setDetectorInfo('FaceMesh (Mediapipe)');
+            setDetectorInfo('BlazeFace + FaceMesh');
           }
           return;
         } catch (e) {
@@ -753,7 +650,7 @@ export default function VoiceInterviewPage() {
           tfReadyRef.current = true;
           detectorReadyRef.current = true;
           setEyeTrackingAvailable(true);
-          setDetectorInfo('FaceMesh (TFJS)');
+          setDetectorInfo('BlazeFace + FaceMesh');
         }
       } catch (e) {
         console.warn('Eye tracking init failed:', e);
@@ -764,7 +661,7 @@ export default function VoiceInterviewPage() {
     return () => { cancelled = true; };
   }, []);
 
-  // Eye tracking loop (throttled)
+  // BlazeFace face detection + FaceMesh eye tracking render loop (throttled)
   useEffect(() => {
     let raf = 0;
     let last = 0;
@@ -772,7 +669,7 @@ export default function VoiceInterviewPage() {
       raf = requestAnimationFrame(loop);
       if (ts && last && ts - last < 120) return; // ~8 FPS throttle
       last = ts || performance.now();
-  if (!isInterviewActive || !detectorReadyRef.current || !faceMeshModelRef.current) return;
+      if (!isInterviewActive) return;
       const video = videoRef.current;
       const canvas = overlayRef.current;
       if (!video || !canvas || video.videoWidth === 0) return;
@@ -782,51 +679,100 @@ export default function VoiceInterviewPage() {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
       }
-      // Do not clear here completely to avoid flicker with face boxes; draw markers only
+      // Clear once per frame; we'll draw bounding box and iris markers together
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // 1) BlazeFace for face detection (throttled)
       try {
-        const preds = await faceMeshModelRef.current.estimateFaces(video, { flipHorizontal: true });
-        if (!preds || preds.length === 0) {
-          offScreenCounterRef.current++;
-          setGazeOff(offScreenCounterRef.current > 20);
-          return;
+        const now = performance.now();
+        if (!blazeModelRef.current) {
+          const blazeface = await import('@tensorflow-models/blazeface');
+          await ensureTFReady();
+          blazeModelRef.current = await blazeface.load();
+          if (!detectorInfo) setDetectorInfo('BlazeFace + FaceMesh');
         }
-        offScreenCounterRef.current = 0;
-        const pts = (preds[0].keypoints || []).map((p: any) => [p.x, p.y]);
-        if (pts.length < 400) return; // not enough keypoints
-        const L_OUT = pts[33], L_IN = pts[133];
-        const R_OUT = pts[362], R_IN = pts[263];
-        const L_UP = pts[159], L_LO = pts[145];
-        const R_UP = pts[386], R_LO = pts[374];
-        const L_IRIS = pts[468] ?? [(L_OUT[0] + L_IN[0]) / 2, (L_UP[1] + L_LO[1]) / 2];
-        const R_IRIS = pts[473] ?? [(R_OUT[0] + R_IN[0]) / 2, (R_UP[1] + R_LO[1]) / 2];
-        // Eye openness (rough EAR)
-        const ear = (Math.hypot(L_UP[0]-L_LO[0], L_UP[1]-L_LO[1]) + Math.hypot(R_UP[0]-R_LO[0], R_UP[1]-R_LO[1])) / 2
-          / (Math.hypot(L_OUT[0]-L_IN[0], L_OUT[1]-L_IN[1]) + Math.hypot(R_OUT[0]-R_IN[0], R_OUT[1]-R_IN[1]));
-        const closed = ear < 0.18;
-        if (closed) closedEyesCounterRef.current++; else closedEyesCounterRef.current = 0;
-        setEyesClosed(closedEyesCounterRef.current > 10);
-        // Gaze center (rough bounds)
-        const hRatioL = (L_IRIS[0] - L_OUT[0]) / (L_IN[0] - L_OUT[0]);
-        const hRatioR = (R_IRIS[0] - R_OUT[0]) / (R_IN[0] - R_OUT[0]);
-        const vRatioL = (L_IRIS[1] - L_UP[1]) / (L_LO[1] - L_UP[1]);
-        const vRatioR = (R_IRIS[1] - R_UP[1]) / (R_LO[1] - R_UP[1]);
-        const centerish = (r: number) => r > 0.28 && r < 0.72;
-        const centered = centerish(hRatioL) && centerish(hRatioR) && vRatioL > 0.25 && vRatioL < 0.75 && vRatioR > 0.25 && vRatioR < 0.75;
-        if (!centered) offScreenCounterRef.current++; else offScreenCounterRef.current = 0;
-        const nowOff = offScreenCounterRef.current > 20;
-        const wasOff = gazeOff;
-        setGazeOff(nowOff);
-        if (!wasOff && nowOff) {
-          captureScreenshot('gaze-off-screen');
-          if (wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({ type: 'proctor-event', event: 'gaze-off-screen', at: Date.now() }));
+        if (!blazeBusyRef.current && now - lastBlazeTsRef.current > 120) {
+          blazeBusyRef.current = true;
+          const preds: any[] = await blazeModelRef.current.estimateFaces(video as any, false);
+          const boxes = Array.isArray(preds)
+            ? preds.map((p: any) => {
+                const [x1, y1] = p.topLeft as [number, number];
+                const [x2, y2] = p.bottomRight as [number, number];
+                return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+              })
+            : [];
+          // Proctor: multiple faces
+          if (faceCount <= 1 && preds && preds.length > 1) {
+            captureScreenshot('multiple-faces');
+            if (wsRef.current?.readyState === WebSocket.OPEN) {
+              wsRef.current.send(JSON.stringify({ type: 'proctor-event', event: 'multiple-faces', at: Date.now() }));
+            }
           }
+          setFaceCount(Array.isArray(preds) ? preds.length : 0);
+          blazeBoxesRef.current = boxes;
+          lastBlazeTsRef.current = now;
+          blazeBusyRef.current = false;
         }
-        // Draw minimal iris overlay
-        ctx.fillStyle = '#10b981';
-        ctx.beginPath(); ctx.arc(L_IRIS[0], L_IRIS[1], 3, 0, Math.PI*2); ctx.fill();
-        ctx.beginPath(); ctx.arc(R_IRIS[0], R_IRIS[1], 3, 0, Math.PI*2); ctx.fill();
-      } catch {}
+      } catch (e) {
+        blazeBusyRef.current = false;
+      }
+
+      // Draw BlazeFace boxes (if any)
+      const boxes = blazeBoxesRef.current || [];
+      if (boxes.length > 0) {
+        ctx.strokeStyle = boxes.length === 1 ? '#22c55e' : '#ef4444';
+        ctx.lineWidth = 3;
+        for (const b of boxes) ctx.strokeRect(b.x, b.y, b.width, b.height);
+      }
+
+      // 2) FaceMesh for eye tracking (only if available and at least one face detected)
+      if (detectorReadyRef.current && faceMeshModelRef.current && faceCount >= 1) {
+        try {
+          const preds = await faceMeshModelRef.current.estimateFaces(video, { flipHorizontal: true });
+          if (!preds || preds.length === 0) {
+            offScreenCounterRef.current++;
+            setGazeOff(offScreenCounterRef.current > 20);
+            // Do not change faceCount here; BlazeFace owns it
+            return;
+          }
+          offScreenCounterRef.current = 0;
+          const face = preds[0];
+          const pts = (face.keypoints || []).map((p: any) => [p.x, p.y]);
+          if (pts.length < 400) return; // not enough keypoints
+          const L_OUT = pts[33], L_IN = pts[133];
+          const R_OUT = pts[362], R_IN = pts[263];
+          const L_UP = pts[159], L_LO = pts[145];
+          const R_UP = pts[386], R_LO = pts[374];
+          const L_IRIS = pts[468] ?? [(L_OUT[0] + L_IN[0]) / 2, (L_UP[1] + L_LO[1]) / 2];
+          const R_IRIS = pts[473] ?? [(R_OUT[0] + R_IN[0]) / 2, (R_UP[1] + R_LO[1]) / 2];
+          // Eye openness (rough EAR)
+          const ear = (Math.hypot(L_UP[0]-L_LO[0], L_UP[1]-L_LO[1]) + Math.hypot(R_UP[0]-R_LO[0], R_UP[1]-R_LO[1])) / 2
+            / (Math.hypot(L_OUT[0]-L_IN[0], L_OUT[1]-L_IN[1]) + Math.hypot(R_OUT[0]-R_IN[0], R_OUT[1]-R_IN[1]));
+          const closed = ear < 0.18;
+          if (closed) closedEyesCounterRef.current++; else closedEyesCounterRef.current = 0;
+          setEyesClosed(closedEyesCounterRef.current > 10);
+          // Gaze center (rough bounds)
+          const hRatioL = (L_IRIS[0] - L_OUT[0]) / (L_IN[0] - L_OUT[0]);
+          const hRatioR = (R_IRIS[0] - R_OUT[0]) / (R_IN[0] - R_OUT[0]);
+          const vRatioL = (L_IRIS[1] - L_UP[1]) / (L_LO[1] - L_UP[1]);
+          const vRatioR = (R_IRIS[1] - R_UP[1]) / (R_LO[1] - R_UP[1]);
+          const centerish = (r: number) => r > 0.28 && r < 0.72;
+          const centered = centerish(hRatioL) && centerish(hRatioR) && vRatioL > 0.25 && vRatioL < 0.75 && vRatioR > 0.25 && vRatioR < 0.75;
+          if (!centered) offScreenCounterRef.current++; else offScreenCounterRef.current = 0;
+          const nowOff = offScreenCounterRef.current > 20;
+          const wasOff = gazeOff;
+          setGazeOff(nowOff);
+          if (!wasOff && nowOff) {
+            captureScreenshot('gaze-off-screen');
+            if (wsRef.current?.readyState === WebSocket.OPEN) {
+              wsRef.current.send(JSON.stringify({ type: 'proctor-event', event: 'gaze-off-screen', at: Date.now() }));
+            }
+          }
+          // Draw minimal iris overlay
+          ctx.fillStyle = '#10b981';
+          ctx.beginPath(); ctx.arc(L_IRIS[0], L_IRIS[1], 3, 0, Math.PI*2); ctx.fill();
+          ctx.beginPath(); ctx.arc(R_IRIS[0], R_IRIS[1], 3, 0, Math.PI*2); ctx.fill();
+        } catch {}
+      }
     };
   raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
@@ -857,8 +803,7 @@ export default function VoiceInterviewPage() {
         if (wsRef.current) {
           try { wsRef.current.close(1000, 'Left fullscreen'); } catch {}
         }
-        if (screenshotIntervalRef.current) { clearInterval(screenshotIntervalRef.current); screenshotIntervalRef.current = null; }
-        if (faceDetectIntervalRef.current) { clearInterval(faceDetectIntervalRef.current); faceDetectIntervalRef.current = null; }
+  if (screenshotIntervalRef.current) { clearInterval(screenshotIntervalRef.current); screenshotIntervalRef.current = null; }
         setIsInterviewActive(false);
       } else {
         setProctorWarning(null);
