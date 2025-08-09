@@ -15,18 +15,6 @@ if (!dbUrl) {
     throw new Error(msg);
 }
 // Support standard Postgres URLs and Prisma Accelerate URLs
-const validProtocols = ['postgres://', 'postgresql://', 'prisma+postgres://'];
-const hasValidProtocol = validProtocols.some(protocol => dbUrl.startsWith(protocol));
-if (!hasValidProtocol) {
-    const redacted = dbUrl.replace(/(:\/\/)([^:@]+):[^@]+@/, (_, p1, u) => `${p1}${u}:****@`);
-    const msg = [
-        `Invalid DATABASE_URL format: ${redacted}`,
-        'It must start with postgres://, postgresql://, or prisma+postgres:// (for Prisma Accelerate).',
-        'If you are using Render/Neon/Supabase, copy the full connection string and include sslmode=require when needed.',
-    ].join(' ');
-    throw new Error(msg);
-}
-// Support standard Postgres URLs and Prisma Accelerate URLs
 const validPrefixes = ['postgres://', 'postgresql://', 'prisma+postgres://', 'prisma+postgresql://'];
 const hasValidPrefix = validPrefixes.some(prefix => dbUrl.startsWith(prefix));
 if (!hasValidPrefix) {
@@ -37,7 +25,8 @@ if (!hasValidPrefix) {
         'If you are using Render/Neon/Supabase, copy the full connection string. For Prisma Accelerate, use your accelerate URL.',
     ].join(' ');
     throw new Error(msg);
-} // Initialize Prisma
+}
+// Initialize Prisma
 exports.prisma = new client_1.PrismaClient().$extends((0, extension_accelerate_1.withAccelerate)());
 // Optional: proactively connect so startup fails early and clearly
 exports.prisma.$connect().catch((err) => {
