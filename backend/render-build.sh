@@ -10,16 +10,22 @@ npm install
 
 # Validate DATABASE_URL early to avoid confusing runtime crashes
 if [[ -z "${DATABASE_URL}" ]]; then
-	echo "ERROR: DATABASE_URL is not set."
-	echo "Please configure a Postgres connection string in Render -> Environment variables."
-	echo "Example: postgresql://USER:PASSWORD@HOST:PORT/DB?sslmode=require"
-	exit 1
+  echo "ERROR: DATABASE_URL is not set."
+  echo "Please configure a Postgres connection string in Render -> Environment variables."
+  echo "Example: postgresql://USER:PASSWORD@HOST:PORT/DB?sslmode=require"
+  echo "Or prisma+postgres://... for Prisma Accelerate"
+  exit 1
 fi
 
-if [[ ! ${DATABASE_URL} =~ ^postgres(ql)?:// ]]; then
-	echo "ERROR: DATABASE_URL must start with postgres:// or postgresql://"
-	echo "Current value starts with: ${DATABASE_URL%%://*}:// (redacted)"
-	exit 1
+# Support standard Postgres URLs and Prisma Accelerate URLs
+if [[ ${DATABASE_URL} =~ ^prisma\+postgres:// ]]; then
+  echo "✅ Detected Prisma Accelerate URL"
+elif [[ ${DATABASE_URL} =~ ^postgres:// ]] || [[ ${DATABASE_URL} =~ ^postgresql:// ]]; then
+  echo "✅ Detected standard PostgreSQL URL"
+else
+  echo "ERROR: DATABASE_URL must start with postgres://, postgresql://, or prisma+postgres://"
+  echo "Current value starts with: ${DATABASE_URL%%://*}:// (detected)"
+  exit 1
 fi
 
 # Generate Prisma client

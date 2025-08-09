@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.imagekit = void 0;
 exports.uploadBase64Image = uploadBase64Image;
 exports.uploadBuffer = uploadBuffer;
+exports.uploadResume = uploadResume;
 const imagekit_1 = __importDefault(require("imagekit"));
 const publicKey = process.env.IMAGEKIT_PUBLIC_KEY;
 const privateKey = process.env.IMAGEKIT_PRIVATE_KEY;
@@ -46,4 +47,17 @@ async function uploadBuffer(params) {
         useUniqueFileName: true,
     });
     return res;
+}
+async function uploadResume(params) {
+    if (!publicKey || !privateKey || !urlEndpoint) {
+        throw new Error('ImageKit not configured');
+    }
+    const { buffer, fileName } = params;
+    const res = await exports.imagekit.upload({
+        file: buffer,
+        fileName,
+        folder: '/aptiview/resumes',
+        useUniqueFileName: true,
+    });
+    return res.url;
 }

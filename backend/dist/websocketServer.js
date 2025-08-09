@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.setupWebSocketServer = setupWebSocketServer;
 const ws_1 = require("ws");
@@ -20,7 +53,7 @@ function setupWebSocketServer(server) {
                 setTimeout(async () => {
                     try {
                         // Generate final summary (for backend only)
-                        const summary = await ws.voiceInterviewer.generateFinalSummary();
+                        const summary = await ws.voiceInterviewer.generateFinalSummary(proctorEvents);
                         const transcript = ws.voiceInterviewer.getTranscript();
                         await prisma.interview.update({
                             where: { id: ws.interviewId },
@@ -42,6 +75,8 @@ function setupWebSocketServer(server) {
             }
         }
         console.log('New WebSocket connection');
+        // Track proctoring events for scoring adjustments
+        let proctorEvents = [];
         // Extract unique link from URL
         const url = new URL(req.url, `http://${req.headers.host}`);
         const uniqueLink = url.pathname.split('/').pop();
@@ -104,11 +139,22 @@ function setupWebSocketServer(server) {
             // Initialize voice interviewer
             // Use email prefix as candidate name (schema does not have name/fullName)
             const candidateName = interview.application.candidate.user.email.split('@')[0];
+            // Build resume summary (best-effort; do not block if it fails)
+            let resumeSummary = undefined;
+            try {
+                const mod = await Promise.resolve().then(() => __importStar(require('./services/resumeService')));
+                if (interview.application.resumeUrl) {
+                    resumeSummary = await mod.getResumeSummary(interview.application.resumeUrl);
+                }
+            }
+            catch { }
             ws.voiceInterviewer = new simpleVoiceInterviewer_1.SimpleVoiceInterviewer({
                 jobTitle: interview.application.job.title,
                 jobDescription: interview.application.job.description,
                 customQuestions: interview.application.job.customQuestions ? [interview.application.job.customQuestions] : undefined,
-                candidateName
+                candidateName,
+                resumeSummary,
+                coverLetter: interview.application.coverLetter || undefined
             });
             // Set up voice interviewer event listeners
             ws.voiceInterviewer.on('connected', () => {
@@ -201,8 +247,8 @@ function setupWebSocketServer(server) {
                                 if (message.size && Math.abs(audioBuffer.length - message.size) > 1000) {
                                     console.warn('Audio size mismatch - reported:', message.size, 'actual:', audioBuffer.length);
                                 }
-                                // Save audio recording to file system
-                                if (ws.interviewId) {
+                                // Save audio recording to file system (optional)
+                                if (ws.interviewId && (process.env.SAVE_AUDIO_STREAM === '1' || process.env.SAVE_AUDIO_STREAM === 'true')) {
                                     try {
                                         const audioUrl = await (0, fileService_1.saveAudioRecording)(audioBuffer, message.mimeType, ws.interviewId);
                                         // Save recording to database
@@ -292,12 +338,23 @@ function setupWebSocketServer(server) {
                             }
                         }
                         break;
+                    case 'proctor-event':
+                        if (ws.interviewId && message.event) {
+                            try {
+                                proctorEvents.push({ event: String(message.event), at: Number(message.at || Date.now()) });
+                                // Optionally, also persist as a screenshot note in future (schema change needed)
+                            }
+                            catch (e) {
+                                // ignore
+                            }
+                        }
+                        break;
                     case 'end-interview':
                         // End the interview
                         if (ws.voiceInterviewer && ws.interviewId) {
                             try {
                                 // Generate final summary
-                                const summary = await ws.voiceInterviewer.generateFinalSummary();
+                                const summary = await ws.voiceInterviewer.generateFinalSummary(proctorEvents);
                                 const transcript = ws.voiceInterviewer.getTranscript();
                                 // Update interview with results
                                 const updatedInterview = await prisma.interview.update({

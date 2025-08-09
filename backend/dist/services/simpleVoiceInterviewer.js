@@ -25,6 +25,9 @@ class SimpleVoiceInterviewer extends events_1.EventEmitter {
 
 Job Description: ${this.config.jobDescription}
 
+Candidate Resume Summary: ${this.config.resumeSummary || 'N/A'}
+${this.config.coverLetter ? `Candidate Cover Letter: ${this.config.coverLetter}` : ''}
+
 IMPORTANT INSTRUCTIONS:
 - Be natural, conversational, and human-like in your responses
 - When you can't understand what the candidate said, politely ask them to repeat or clarify
@@ -385,7 +388,7 @@ Keep your response conversational and under 50 words.`;
     getTranscript() {
         return this.transcript;
     }
-    async generateFinalSummary() {
+    async generateFinalSummary(proctorEvents) {
         const fullTranscript = this.transcript
             .map(msg => `${msg.role.toUpperCase()}: ${msg.content}`)
             .join('\n');
@@ -433,6 +436,28 @@ REMEMBER: Output ONLY valid JSON. Do NOT add any extra text, apologies, or expla
                 throw new Error('No response from OpenAI');
             try {
                 const parsedContent = JSON.parse(content);
+                // Apply proctoring deductions if present
+                if (proctorEvents && Array.isArray(proctorEvents) && proctorEvents.length > 0) {
+                    const violations = {
+                        multipleFaces: proctorEvents.filter(e => e.event === 'multiple-faces').length,
+                        gazeOff: proctorEvents.filter(e => e.event === 'gaze-off-screen').length,
+                    };
+                    const totalDeductions = Math.min(3, violations.multipleFaces) * 0.5 + Math.min(3, violations.gazeOff) * 0.25;
+                    const applyDeduction = (v) => Math.max(1, Math.round((v - totalDeductions) * 10) / 10);
+                    if (parsedContent.scores) {
+                        parsedContent.scores.communication = applyDeduction(parsedContent.scores.communication || 0);
+                        parsedContent.scores.culturalFit = applyDeduction(parsedContent.scores.culturalFit || 0);
+                    }
+                    // Append note to summary
+                    const notes = [];
+                    if (violations.multipleFaces > 0)
+                        notes.push(`${violations.multipleFaces} instance(s) of multiple faces detected`);
+                    if (violations.gazeOff > 0)
+                        notes.push(`${violations.gazeOff} instance(s) of not looking at screen`);
+                    if (notes.length) {
+                        parsedContent.summary = `${parsedContent.summary}\n\nProctoring notes: ${notes.join('; ')}.`;
+                    }
+                }
                 return {
                     ...parsedContent,
                     shouldProceed: parsedContent.recommendation === 'Hire' || parsedContent.recommendation === 'Strong Hire'

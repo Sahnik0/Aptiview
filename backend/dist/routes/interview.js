@@ -8,17 +8,21 @@ const client_1 = require("@prisma/client");
 const requireClerkAuth_1 = require("../middleware/requireClerkAuth");
 const uuid_1 = require("uuid");
 const aiInterviewer_1 = require("../services/aiInterviewer");
+const resumeService_1 = require("../services/resumeService");
 const fileService_1 = require("../services/fileService");
 const imageKitService_1 = require("../services/imageKitService");
 const router = express_1.default.Router();
 const prisma = new client_1.PrismaClient();
 // Helper function to create AI interviewer instance
-const createAIInterviewer = (job) => {
+const createAIInterviewer = (job, application, resumeSummary) => {
     return new aiInterviewer_1.AIInterviewer({
         jobTitle: job.title,
         jobDescription: job.description,
         interviewContext: job.interviewContext || undefined,
-        customQuestions: job.customQuestions ? [job.customQuestions] : undefined
+        customQuestions: job.customQuestions ? [job.customQuestions] : undefined,
+        candidateResumeUrl: application?.resumeUrl,
+        candidateCoverLetter: application?.coverLetter,
+        resumeSummary,
     });
 };
 // Helper function to save recording (placeholder)
@@ -205,7 +209,8 @@ router.post('/:uniqueLink/start', async (req, res) => {
             }
         });
         // Get AI welcome message
-        const aiInterviewer = createAIInterviewer(interview.application.job);
+        const resumeSummary = await (0, resumeService_1.getResumeSummary)(interview.application.resumeUrl || undefined);
+        const aiInterviewer = createAIInterviewer(interview.application.job, interview.application, resumeSummary);
         const welcomeResponse = await aiInterviewer.getNextQuestion();
         const welcomeMessage = welcomeResponse.question;
         res.json({
@@ -237,7 +242,8 @@ router.post('/:uniqueLink/chat', async (req, res) => {
             return res.status(404).json({ error: 'Interview not found or not active' });
         }
         // Get AI response
-        const aiInterviewer = createAIInterviewer(interview.application.job);
+        const resumeSummary = await (0, resumeService_1.getResumeSummary)(interview.application.resumeUrl || undefined);
+        const aiInterviewer = createAIInterviewer(interview.application.job, interview.application, resumeSummary);
         // If there's existing transcript, restore conversation history
         if (interview.aiTranscript && !isFirstMessage) {
             // Parse transcript and restore conversation state
@@ -341,7 +347,8 @@ router.post('/:uniqueLink/end', async (req, res) => {
             });
         }
         // Generate AI summary and scoring
-        const aiInterviewer = createAIInterviewer(interview.application.job);
+        const resumeSummary = await (0, resumeService_1.getResumeSummary)(interview.application.resumeUrl || undefined);
+        const aiInterviewer = createAIInterviewer(interview.application.job, interview.application, resumeSummary);
         const aiAnalysis = await aiInterviewer.generateInterviewSummary();
         // Update interview
         const updatedInterview = await prisma.interview.update({

@@ -15,7 +15,8 @@ const app = (0, express_1.default)();
 app.use((0, cors_1.default)({
     origin: [
         "http://localhost:3000",
-        "https://apti-view.vercel.app", // Your actual Vercel URL
+        "https://apti-view.vercel.app",
+        "https://apti-view-seven.vercel.app", // Your actual Vercel URL
         "https://aptiview.onrender.com", // Your backend URL (for health checks)
         process.env.FRONTEND_URL || "http://localhost:3000"
     ],
@@ -23,7 +24,9 @@ app.use((0, cors_1.default)({
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }));
-app.use(express_1.default.json());
+// Increase body size limits to handle base64-encoded resumes
+app.use(express_1.default.json({ limit: process.env.JSON_BODY_LIMIT || '15mb' }));
+app.use(express_1.default.urlencoded({ extended: true, limit: process.env.JSON_BODY_LIMIT || '15mb' }));
 // Configure Clerk middleware with proper environment variables
 app.use((0, express_2.clerkMiddleware)({
     publishableKey: process.env.CLERK_PUBLISHABLE_KEY,

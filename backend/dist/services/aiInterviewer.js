@@ -29,6 +29,9 @@ Custom Questions to Include:
 ${this.context.customQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}
 ` : ''}
 
+ ${this.context.resumeSummary ? `Candidate Resume Summary: ${this.context.resumeSummary}` : this.context.candidateResumeUrl ? `Candidate Resume (URL): ${this.context.candidateResumeUrl}` : ''}
+ ${this.context.candidateCoverLetter ? `Candidate Cover Letter: ${this.context.candidateCoverLetter}` : ''}
+
 Guidelines:
 1. Be professional, friendly, and engaging
 2. Ask relevant questions based on the job requirements
