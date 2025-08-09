@@ -84,6 +84,32 @@ export default function VoiceInterviewPage() {
   const [proctorWarning, setProctorWarning] = useState<string | null>(null);
   const [eyeTrackingAvailable, setEyeTrackingAvailable] = useState(false);
   const [terminatedByFullscreen, setTerminatedByFullscreen] = useState(false);
+  // Gaze calibration (dynamic thresholds per user/session)
+  const gazeCalibRef = useRef<{ done: boolean; startTs: number; samples: { hL: number[]; hR: number[]; vL: number[]; vR: number[] }; baseline: null | { hL: number; hR: number; vL: number; vR: number } }>({
+    done: false,
+    startTs: 0,
+    samples: { hL: [], hR: [], vL: [], vR: [] },
+    baseline: null,
+  });
+  // WebGazer (screen-based gaze) integration
+  const webGazerRef = useRef<any>(null);
+  const wgEnabledRef = useRef(false);
+  const wgOffCounterRef = useRef(0);
+  const wgCalibRef = useRef<{ done: boolean; startTs: number; cx: number; cy: number } | null>(null);
+  const [usingWebGazer, setUsingWebGazer] = useState(false);
+  // Head orientation tracking (watching other things)
+  const headOffCounterRef = useRef(0);
+  const headOffActiveRef = useRef(false);
+  // Smoothed head pose values to reduce jitter
+  const yawEmaRef = useRef(0);
+  const pitchEmaRef = useRef(0);
+  // Baseline face position for relative movement detection
+  const faceBaselineRef = useRef<{ eyeWidthL: number; eyeWidthR: number; pitch: number; samples: number } | null>(null);
+  // Face count ref for non-stale reads in listeners
+  const faceCountRef = useRef(0);
+  useEffect(() => { faceCountRef.current = faceCount; }, [faceCount]);
+  // WebGazer EMA smoothing
+  const wgEmaRef = useRef<{ inited: boolean; x: number; y: number }>({ inited: false, x: 0, y: 0 });
 
   // Ensure TFJS backend is initialized once with fallbacks
   const ensureTFReady = useCallback(async () => {
@@ -490,6 +516,17 @@ export default function VoiceInterviewPage() {
       connectWebSocket();
       setShowPermissionModal(false);
       setIsInterviewActive(true);
+      // Reset gaze calibration
+      gazeCalibRef.current = {
+        done: false,
+        startTs: performance.now(),
+        samples: { hL: [], hR: [], vL: [], vR: [] },
+        baseline: null,
+      };
+      // Start WebGazer (best-effort)
+      try {
+        await startWebGazer();
+      } catch {}
       // Slight delay before requesting fullscreen to avoid jank
       setTimeout(async () => {
         try {
@@ -516,6 +553,8 @@ export default function VoiceInterviewPage() {
     if (screenshotIntervalRef.current) {
       clearInterval(screenshotIntervalRef.current);
     }
+  // Stop WebGazer if running
+  try { stopWebGazer(); } catch {}
     
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach(track => track.stop());
@@ -552,6 +591,8 @@ export default function VoiceInterviewPage() {
       if (wsRef.current) {
         wsRef.current.close();
       }
+  // Stop WebGazer on unmount
+  try { stopWebGazer(); } catch {}
       if (screenshotIntervalRef.current) {
         clearInterval(screenshotIntervalRef.current);
       }
@@ -679,7 +720,7 @@ export default function VoiceInterviewPage() {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
       }
-      // Clear once per frame; we'll draw bounding box and iris markers together
+  // Clear once per frame; we'll draw bounding box and iris markers together
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       // 1) BlazeFace for face detection (throttled)
       try {
@@ -724,47 +765,230 @@ export default function VoiceInterviewPage() {
         for (const b of boxes) ctx.strokeRect(b.x, b.y, b.width, b.height);
       }
 
-      // 2) FaceMesh for eye tracking (only if available and at least one face detected)
+      // 2) FaceMesh for eyes (EAR/closed + optional gaze) and head pose (only if available and at least one face detected)
       if (detectorReadyRef.current && faceMeshModelRef.current && faceCount >= 1) {
         try {
           const preds = await faceMeshModelRef.current.estimateFaces(video, { flipHorizontal: true });
           if (!preds || preds.length === 0) {
-            offScreenCounterRef.current++;
-            setGazeOff(offScreenCounterRef.current > 20);
+            // If FaceMesh can't find landmarks while a face is still detected by BlazeFace,
+            // treat this as potential gaze-off and do not clobber faceCount.
+            const wasOff = gazeOff;
+            if (gazeCalibRef.current.done) {
+              offScreenCounterRef.current++;
+              const nowOff = offScreenCounterRef.current > 6; // ~0.7s at ~8fps (harsher)
+              setGazeOff(nowOff);
+              setProctorWarning(nowOff ? 'Please keep your eyes on the screen.' : null);
+              if (!wasOff && nowOff) {
+                captureScreenshot('gaze-off-screen');
+                if (wsRef.current?.readyState === WebSocket.OPEN) {
+                  wsRef.current.send(JSON.stringify({ type: 'proctor-event', event: 'gaze-off-screen', at: Date.now() }));
+                }
+              }
+            } else {
+              // During calibration, don't penalize missing landmarks
+              offScreenCounterRef.current = 0;
+              setGazeOff(false);
+              setProctorWarning(null);
+            }
             // Do not change faceCount here; BlazeFace owns it
             return;
           }
           offScreenCounterRef.current = 0;
           const face = preds[0];
           const pts = (face.keypoints || []).map((p: any) => [p.x, p.y]);
-          if (pts.length < 400) return; // not enough keypoints
-          const L_OUT = pts[33], L_IN = pts[133];
-          const R_OUT = pts[362], R_IN = pts[263];
-          const L_UP = pts[159], L_LO = pts[145];
-          const R_UP = pts[386], R_LO = pts[374];
-          const L_IRIS = pts[468] ?? [(L_OUT[0] + L_IN[0]) / 2, (L_UP[1] + L_LO[1]) / 2];
-          const R_IRIS = pts[473] ?? [(R_OUT[0] + R_IN[0]) / 2, (R_UP[1] + R_LO[1]) / 2];
-          // Eye openness (rough EAR)
-          const ear = (Math.hypot(L_UP[0]-L_LO[0], L_UP[1]-L_LO[1]) + Math.hypot(R_UP[0]-R_LO[0], R_UP[1]-R_LO[1])) / 2
-            / (Math.hypot(L_OUT[0]-L_IN[0], L_OUT[1]-L_IN[1]) + Math.hypot(R_OUT[0]-R_IN[0], R_OUT[1]-R_IN[1]));
+          // Helper to safely fetch a point; returns undefined if out of range
+          const getPt = (i: number) => (i >= 0 && i < pts.length && isFinite(pts[i]?.[0]) && isFinite(pts[i]?.[1])) ? pts[i] : undefined;
+          const L_OUT = getPt(33), L_IN = getPt(133);
+          const R_OUT = getPt(362), R_IN = getPt(263);
+          const L_UP = getPt(159), L_LO = getPt(145);
+          const R_UP = getPt(386), R_LO = getPt(374);
+          const CHIN = getPt(152);
+          const FOREHEAD = getPt(10);
+          if (!L_OUT || !L_IN || !R_OUT || !R_IN || !L_UP || !L_LO || !R_UP || !R_LO) {
+            // Missing critical eye landmarks: treat as potential off-screen
+            const wasOff = gazeOff;
+            offScreenCounterRef.current++;
+            const nowOff = offScreenCounterRef.current > 16;
+            setGazeOff(nowOff);
+            setProctorWarning(nowOff ? 'Please keep your eyes on the screen.' : null);
+            if (!wasOff && nowOff) {
+              captureScreenshot('gaze-off-screen');
+              if (wsRef.current?.readyState === WebSocket.OPEN) {
+                wsRef.current.send(JSON.stringify({ type: 'proctor-event', event: 'gaze-off-screen', at: Date.now() }));
+              }
+            }
+            return;
+          }
+          // Iris centers: average ring points for stability (requires refineLandmarks: true)
+          const leftIrisIdx = [468, 469, 470, 471];
+          const rightIrisIdx = [473, 474, 475, 476];
+          const avgPoint = (ids: number[], fallback: [number, number]) => {
+            let sx = 0, sy = 0, n = 0;
+            for (const id of ids) {
+              const p = pts[id];
+              if (p && isFinite(p[0]) && isFinite(p[1])) { sx += p[0]; sy += p[1]; n++; }
+            }
+            if (n === 0) return fallback;
+            return [sx / n, sy / n] as [number, number];
+          };
+          const L_IRIS = avgPoint(leftIrisIdx, [(L_OUT[0] + L_IN[0]) / 2, (L_UP[1] + L_LO[1]) / 2]);
+          const R_IRIS = avgPoint(rightIrisIdx, [(R_OUT[0] + R_IN[0]) / 2, (R_UP[1] + R_LO[1]) / 2]);
+          // Eye openness (rough EAR) with guards
+          const leftH = Math.hypot(L_OUT[0]-L_IN[0], L_OUT[1]-L_IN[1]);
+          const rightH = Math.hypot(R_OUT[0]-R_IN[0], R_OUT[1]-R_IN[1]);
+          const leftV = Math.hypot(L_UP[0]-L_LO[0], L_UP[1]-L_LO[1]);
+          const rightV = Math.hypot(R_UP[0]-R_LO[0], R_UP[1]-R_LO[1]);
+          const denom = Math.max(1e-6, leftH + rightH);
+          const ear = (leftV + rightV) / denom;
           const closed = ear < 0.18;
           if (closed) closedEyesCounterRef.current++; else closedEyesCounterRef.current = 0;
           setEyesClosed(closedEyesCounterRef.current > 10);
-          // Gaze center (rough bounds)
-          const hRatioL = (L_IRIS[0] - L_OUT[0]) / (L_IN[0] - L_OUT[0]);
-          const hRatioR = (R_IRIS[0] - R_OUT[0]) / (R_IN[0] - R_OUT[0]);
-          const vRatioL = (L_IRIS[1] - L_UP[1]) / (L_LO[1] - L_UP[1]);
-          const vRatioR = (R_IRIS[1] - R_UP[1]) / (R_LO[1] - R_UP[1]);
-          const centerish = (r: number) => r > 0.28 && r < 0.72;
-          const centered = centerish(hRatioL) && centerish(hRatioR) && vRatioL > 0.25 && vRatioL < 0.75 && vRatioR > 0.25 && vRatioR < 0.75;
-          if (!centered) offScreenCounterRef.current++; else offScreenCounterRef.current = 0;
-          const nowOff = offScreenCounterRef.current > 20;
-          const wasOff = gazeOff;
-          setGazeOff(nowOff);
-          if (!wasOff && nowOff) {
-            captureScreenshot('gaze-off-screen');
-            if (wsRef.current?.readyState === WebSocket.OPEN) {
-              wsRef.current.send(JSON.stringify({ type: 'proctor-event', event: 'gaze-off-screen', at: Date.now() }));
+          // Head pose heuristic (yaw/pitch) for "watching other things"
+          // Yaw from eye-width asymmetry: one eye appears narrower when turning
+          const eyeWidthL = Math.hypot(L_OUT[0]-L_IN[0], L_OUT[1]-L_IN[1]);
+          const eyeWidthR = Math.hypot(R_OUT[0]-R_IN[0], R_OUT[1]-R_IN[1]);
+          
+          // Initialize headOff for use later
+          let headOff = false;
+          
+          // Establish baseline if we don't have one yet (first few frames)
+          if (!faceBaselineRef.current || faceBaselineRef.current.samples < 30) {
+            if (!faceBaselineRef.current) {
+              faceBaselineRef.current = { eyeWidthL: eyeWidthL, eyeWidthR: eyeWidthR, pitch: 0, samples: 0 };
+            }
+            // Update baseline using moving average
+            const alpha = 0.1;
+            faceBaselineRef.current.eyeWidthL = faceBaselineRef.current.eyeWidthL * (1 - alpha) + eyeWidthL * alpha;
+            faceBaselineRef.current.eyeWidthR = faceBaselineRef.current.eyeWidthR * (1 - alpha) + eyeWidthR * alpha;
+            faceBaselineRef.current.samples++;
+            
+            // During baseline collection, don't trigger warnings
+            headOffCounterRef.current = 0;
+            headOffActiveRef.current = false;
+            if (!gazeOff) setProctorWarning(null);
+          } else {
+            // Calculate relative changes from baseline
+            const baseline = faceBaselineRef.current;
+            const eyeWidthRatio = Math.max(1e-6, baseline.eyeWidthL + baseline.eyeWidthR);
+            const yawChange = ((eyeWidthL - baseline.eyeWidthL) - (eyeWidthR - baseline.eyeWidthR)) / eyeWidthRatio;
+            
+            // Pitch from forehead/chin symmetry around eye line
+            let pitchChange = 0;
+            if (CHIN && FOREHEAD) {
+              const eyeLineY = (L_UP[1] + L_LO[1] + R_UP[1] + R_LO[1]) / 4;
+              const faceSpan = Math.max(1e-6, Math.abs(CHIN[1] - FOREHEAD[1]));
+              const currentPitch = ((CHIN[1] - eyeLineY) - (eyeLineY - FOREHEAD[1])) / faceSpan;
+              pitchChange = Math.abs(currentPitch - baseline.pitch);
+              
+              // Update baseline pitch slowly
+              baseline.pitch = baseline.pitch * 0.995 + currentPitch * 0.005;
+            }
+            
+            // Apply exponential moving average to smooth out noise
+            const alphaHP = 0.3;
+            yawEmaRef.current = yawEmaRef.current * (1 - alphaHP) + Math.abs(yawChange) * alphaHP;
+            pitchEmaRef.current = pitchEmaRef.current * (1 - alphaHP) + pitchChange * alphaHP;
+            
+            // More conservative thresholds to reduce false positives
+            const yawThreshold = 0.15;  // Increased from 0.1
+            const pitchThreshold = 0.3; // Increased from 0.2
+            headOff = yawEmaRef.current > yawThreshold || pitchEmaRef.current > pitchThreshold;
+            
+            if (headOff) {
+              headOffCounterRef.current++;
+            } else {
+              headOffCounterRef.current = Math.max(0, headOffCounterRef.current - 1); // Gradual decay
+            }
+            
+            // Require sustained movement for longer duration to reduce false positives
+            const framesToTrigger = 12; // ~1.5 seconds at 8fps
+            if (headOffCounterRef.current > framesToTrigger && !headOffActiveRef.current) {
+              headOffActiveRef.current = true;
+              // Only set warning if no gaze warning is already active
+              if (!gazeOff) {
+                setProctorWarning('Please face the screen.');
+              }
+              captureScreenshot('head-turned');
+              if (wsRef.current?.readyState === WebSocket.OPEN) {
+                wsRef.current.send(JSON.stringify({ type: 'proctor-event', event: 'head-turned', at: Date.now() }));
+              }
+            } else if (headOffCounterRef.current === 0 && headOffActiveRef.current) {
+              headOffActiveRef.current = false;
+              // Only clear warning if no gaze warning is active
+              if (!gazeOff) setProctorWarning(null);
+            }
+          }
+
+          // If WebGazer is NOT active, use FaceMesh-based gaze logic (ratios + calibration)
+          if (!wgEnabledRef.current) {
+            // Compute normalized gaze ratios
+            const safeRatio = (num: number, den: number) => {
+              if (!isFinite(num) || !isFinite(den) || Math.abs(den) < 1e-6) return 0.5;
+              return num / den;
+            };
+            const hRatioL = safeRatio(L_IRIS[0] - L_OUT[0], L_IN[0] - L_OUT[0]);
+            const hRatioR = safeRatio(R_IRIS[0] - R_OUT[0], R_IN[0] - R_OUT[0]);
+            const vRatioL = safeRatio(L_IRIS[1] - L_UP[1], L_LO[1] - L_UP[1]);
+            const vRatioR = safeRatio(R_IRIS[1] - R_UP[1], R_LO[1] - R_UP[1]);
+            const calib = gazeCalibRef.current;
+            if (!calib.done) {
+              const now = performance.now();
+              calib.samples.hL.push(hRatioL); calib.samples.hR.push(hRatioR);
+              calib.samples.vL.push(vRatioL); calib.samples.vR.push(vRatioR);
+              if (calib.samples.hL.length > 120) {
+                calib.samples.hL.shift(); calib.samples.hR.shift(); calib.samples.vL.shift(); calib.samples.vR.shift();
+              }
+              const enoughTime = now - calib.startTs > 1200; // speed up calibration
+              const enoughSamples = calib.samples.hL.length >= 24;
+              if (enoughTime || enoughSamples) {
+                const avg = (arr: number[]) => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 0.5;
+                calib.baseline = {
+                  hL: avg(calib.samples.hL),
+                  hR: avg(calib.samples.hR),
+                  vL: avg(calib.samples.vL),
+                  vR: avg(calib.samples.vR),
+                };
+                calib.done = true;
+              }
+              offScreenCounterRef.current = 0;
+              setGazeOff(false);
+              setProctorWarning(null);
+            }
+
+            const baseline = gazeCalibRef.current.baseline;
+            let centered = true;
+            if (baseline) {
+              // More lenient windows to reduce false positives
+              const dH = 0.055, dV = 0.065; // Increased from 0.035/0.045
+              const within = (v: number, c: number, d: number) => v > (c - d) && v < (c + d);
+              centered = within(hRatioL, baseline.hL, dH) && within(hRatioR, baseline.hR, dH)
+                      && within(vRatioL, baseline.vL, dV) && within(vRatioR, baseline.vR, dV);
+            } else {
+              // More lenient fallback thresholds
+              const centerH = (r: number) => r > 0.45 && r < 0.55; // Wider range
+              const centerV = (r: number) => r > 0.43 && r < 0.57; // Wider range
+              centered = centerH(hRatioL) && centerH(hRatioR) && centerV(vRatioL) && centerV(vRatioR);
+            }
+
+            if (gazeCalibRef.current.done) {
+              if (!centered || headOff) offScreenCounterRef.current++; else offScreenCounterRef.current = Math.max(0, offScreenCounterRef.current - 1); // Gradual decay
+              const nowOff = offScreenCounterRef.current > 8; // Increased from 5 (~1.0s)
+              const wasOff = gazeOff;
+              setGazeOff(nowOff);
+              
+              // Coordinate with head movement warnings
+              if (nowOff && !headOffActiveRef.current) {
+                setProctorWarning('Please keep your eyes on the screen.');
+              } else if (!nowOff && !headOffActiveRef.current) {
+                setProctorWarning(null);
+              }
+              
+              if (!wasOff && nowOff) {
+                captureScreenshot('gaze-off-screen');
+                if (wsRef.current?.readyState === WebSocket.OPEN) {
+                  wsRef.current.send(JSON.stringify({ type: 'proctor-event', event: 'gaze-off-screen', at: Date.now() }));
+                }
+              }
             }
           }
           // Draw minimal iris overlay
@@ -777,6 +1001,105 @@ export default function VoiceInterviewPage() {
   raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   }, [isInterviewActive, gazeOff, captureScreenshot]);
+
+  // Start WebGazer and hook its gaze listener for screen-based eye movement detection
+  const startWebGazer = useCallback(async () => {
+    if (wgEnabledRef.current) return;
+    try {
+      const webgazer = (await import('webgazer')).default as any;
+      if (!webgazer) return;
+      // Hide internal UI
+      try { webgazer.showVideo(false); } catch {}
+      try { webgazer.showFaceOverlay(false); } catch {}
+      try { webgazer.showPredictionPoints(false); } catch {}
+      try { webgazer.params.screenVideoGL = null; } catch {}
+      webgazer.setRegression('ridge');
+      // Start
+      await webgazer.begin();
+      webGazerRef.current = webgazer;
+      wgEnabledRef.current = true;
+      setUsingWebGazer(true);
+      // Quick calibration: capture center for ~1s
+      wgCalibRef.current = { done: false, startTs: performance.now(), cx: 0.5, cy: 0.5 };
+      wgOffCounterRef.current = 0;
+      wgEmaRef.current = { inited: false, x: 0, y: 0 };
+
+      webgazer.setGazeListener((data: any) => {
+        if (!data) return;
+        const x = data.x; // pixels
+        const y = data.y;
+        if (!isFinite(x) || !isFinite(y)) return;
+        // If face not present, ignore WebGazer samples
+        if (faceCountRef.current < 1) {
+          wgOffCounterRef.current = 0;
+          return;
+        }
+        let nx = x / Math.max(1, window.innerWidth);
+        let ny = y / Math.max(1, window.innerHeight);
+        // EMA smoothing
+        const alpha = 0.3;
+        if (!wgEmaRef.current.inited) {
+          wgEmaRef.current = { inited: true, x: nx, y: ny };
+        } else {
+          wgEmaRef.current.x = wgEmaRef.current.x * (1 - alpha) + nx * alpha;
+          wgEmaRef.current.y = wgEmaRef.current.y * (1 - alpha) + ny * alpha;
+        }
+        nx = wgEmaRef.current.x;
+        ny = wgEmaRef.current.y;
+        const calib = wgCalibRef.current;
+        const now = performance.now();
+        if (calib && !calib.done) {
+          // assume user looks center at start
+          if (now - calib.startTs > 1000) {
+            calib.cx = nx; calib.cy = ny; calib.done = true;
+          }
+          setGazeOff(false);
+          setProctorWarning(null);
+          wgOffCounterRef.current = 0;
+          return;
+        }
+        const cx = calib?.cx ?? 0.5;
+        const cy = calib?.cy ?? 0.5;
+        const dx = Math.abs(nx - cx);
+        const dy = Math.abs(ny - cy);
+        // More conservative thresholds to reduce false positives
+        const off = dx > 0.12 || dy > 0.15; // Increased from 0.08/0.10
+        if (off) wgOffCounterRef.current++; else wgOffCounterRef.current = Math.max(0, wgOffCounterRef.current - 1); // Gradual decay
+        const nowOff = wgOffCounterRef.current > 12; // ~1.0-1.5s depending on callback rate, increased from 8
+        const wasOff = gazeOff;
+        if (nowOff !== wasOff) {
+          setGazeOff(nowOff);
+          // Coordinate with head movement warnings
+          if (nowOff && !headOffActiveRef.current) {
+            setProctorWarning('Please keep your eyes on the screen.');
+          } else if (!nowOff && !headOffActiveRef.current) {
+            setProctorWarning(null);
+          }
+          if (!wasOff && nowOff) {
+            captureScreenshot('gaze-off-screen');
+            if (wsRef.current?.readyState === WebSocket.OPEN) {
+              wsRef.current.send(JSON.stringify({ type: 'proctor-event', event: 'gaze-off-screen', at: Date.now() }));
+            }
+          }
+        }
+      });
+    } catch (e) {
+      // If WebGazer fails, continue with FaceMesh-only logic
+      wgEnabledRef.current = false;
+      setUsingWebGazer(false);
+    }
+  }, [captureScreenshot]);
+
+  const stopWebGazer = useCallback(() => {
+    try {
+      const wg = webGazerRef.current;
+      if (wg && typeof wg.end === 'function') {
+        wg.end();
+      }
+    } catch {}
+    wgEnabledRef.current = false;
+    setUsingWebGazer(false);
+  }, []);
 
   // Require fullscreen and tab focus; terminate if leaving fullscreen
   useEffect(() => {
@@ -793,6 +1116,12 @@ export default function VoiceInterviewPage() {
       if (document.hidden) {
         setProctorWarning('Tab switch detected. Please stay focused on the interview.');
       } else {
+        // Entered fullscreen -> re-calibrate WebGazer baseline
+        if (wgEnabledRef.current) {
+          wgCalibRef.current = { done: false, startTs: performance.now(), cx: 0.5, cy: 0.5 };
+          wgOffCounterRef.current = 0;
+          wgEmaRef.current = { inited: false, x: 0, y: 0 };
+        }
         setProctorWarning(null);
       }
     };
@@ -803,6 +1132,8 @@ export default function VoiceInterviewPage() {
         if (wsRef.current) {
           try { wsRef.current.close(1000, 'Left fullscreen'); } catch {}
         }
+  // Stop WebGazer when exiting fullscreen
+  try { stopWebGazer(); } catch {}
   if (screenshotIntervalRef.current) { clearInterval(screenshotIntervalRef.current); screenshotIntervalRef.current = null; }
         setIsInterviewActive(false);
       } else {
@@ -984,7 +1315,12 @@ export default function VoiceInterviewPage() {
                       )}
                       {isInterviewActive && (
                         <div className={`absolute top-2 left-2 right-2 mx-auto w-fit px-3 py-1 rounded-md text-xs font-medium ${faceStatus === 'ok' ? 'bg-black/60 text-white' : faceStatus === 'none' ? 'bg-yellow-500 text-white' : 'bg-red-600 text-white'}`}>
-                          {faceStatus === 'ok' ? (gazeOff ? 'Please keep your eyes on the screen.' : (detectorInfo || 'Detector active')) : faceStatus === 'none' ? 'No face detected. Please position your face in view.' : 'Multiple faces detected. Only one person should be visible.'}
+                          {faceStatus === 'ok' ? (
+                            // Show calibration status or detection status
+                            (!faceBaselineRef.current || faceBaselineRef.current.samples < 30) ? 
+                            'Calibrating detection system...' :
+                            (gazeOff ? 'Please keep your eyes on the screen.' : (detectorInfo || 'Detector active'))
+                          ) : faceStatus === 'none' ? 'No face detected. Please position your face in view.' : 'Multiple faces detected. Only one person should be visible.'}
                         </div>
                       )}
                       {eyesClosed && isInterviewActive && (
