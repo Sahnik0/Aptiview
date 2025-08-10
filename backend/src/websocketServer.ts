@@ -135,14 +135,25 @@ export function setupWebSocketServer(server: Server) {
         }
       } catch {}
 
-      ws.voiceInterviewer = new SimpleVoiceInterviewer({
-        jobTitle: interview.application.job.title,
-        jobDescription: interview.application.job.description,
-        customQuestions: interview.application.job.customQuestions ? [interview.application.job.customQuestions] : undefined,
-        candidateName,
-        resumeSummary,
-        coverLetter: interview.application.coverLetter || undefined
-      });
+      console.log('Initializing voice interviewer for candidate:', candidateName);
+      console.log('Job title:', interview.application.job.title);
+      console.log('OpenAI API key available:', !!process.env.OPENAI_API_KEY);
+
+      try {
+        ws.voiceInterviewer = new SimpleVoiceInterviewer({
+          jobTitle: interview.application.job.title,
+          jobDescription: interview.application.job.description,
+          customQuestions: interview.application.job.customQuestions ? [interview.application.job.customQuestions] : undefined,
+          candidateName,
+          resumeSummary,
+          coverLetter: interview.application.coverLetter || undefined
+        });
+        console.log('Voice interviewer created successfully');
+      } catch (error) {
+        console.error('Failed to create voice interviewer:', error);
+        ws.close(1011, 'Failed to initialize voice interviewer');
+        return;
+      }
 
       // Set up voice interviewer event listeners
       ws.voiceInterviewer.on('connected', () => {
@@ -196,7 +207,19 @@ export function setupWebSocketServer(server: Server) {
       }
 
       // Start voice interview
-      await ws.voiceInterviewer.startInterview();
+      try {
+        console.log('Starting voice interview...');
+        await ws.voiceInterviewer.startInterview();
+        console.log('Voice interview started successfully');
+      } catch (error) {
+        console.error('Failed to start voice interview:', error);
+        ws.send(JSON.stringify({ 
+          type: 'error', 
+          message: 'Failed to start voice interview. Please refresh and try again.' 
+        }));
+        ws.close(1011, 'Failed to start voice interview');
+        return;
+      }
 
       ws.send(JSON.stringify({ 
         type: 'interview-ready',

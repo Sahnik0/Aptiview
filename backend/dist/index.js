@@ -85,6 +85,29 @@ app.get('/health/detailed', async (req, res) => {
 app.get('/ping', (req, res) => {
     res.status(200).send('pong');
 });
+// Environment check endpoint for debugging deployment issues
+app.get('/env-check', (req, res) => {
+    const requiredEnvs = {
+        'DATABASE_URL': !!process.env.DATABASE_URL,
+        'OPENAI_API_KEY': !!process.env.OPENAI_API_KEY,
+        'CLERK_SECRET_KEY': !!process.env.CLERK_SECRET_KEY,
+        'CLERK_PUBLISHABLE_KEY': !!process.env.CLERK_PUBLISHABLE_KEY,
+        'FRONTEND_URL': !!process.env.FRONTEND_URL,
+        'IMAGEKIT_PUBLIC_KEY': !!process.env.IMAGEKIT_PUBLIC_KEY,
+        'IMAGEKIT_PRIVATE_KEY': !!process.env.IMAGEKIT_PRIVATE_KEY,
+        'IMAGEKIT_URL_ENDPOINT': !!process.env.IMAGEKIT_URL_ENDPOINT
+    };
+    const missingEnvs = Object.entries(requiredEnvs)
+        .filter(([key, value]) => !value)
+        .map(([key]) => key);
+    res.json({
+        status: missingEnvs.length === 0 ? 'OK' : 'MISSING_ENV_VARS',
+        envStatus: requiredEnvs,
+        missingEnvs,
+        nodeEnv: process.env.NODE_ENV || 'not_set',
+        port: process.env.PORT || 'not_set'
+    });
+});
 app.use('/api/users', user_1.default);
 app.use('/api/interviews', interview_1.default);
 const PORT = process.env.PORT || 4000;

@@ -20,12 +20,21 @@ export class SimpleVoiceInterviewer extends EventEmitter {
 
   constructor(config: VoiceInterviewConfig) {
     super();
+    
+    // Validate OpenAI API key
+    if (!process.env.OPENAI_API_KEY) {
+      console.error('OPENAI_API_KEY is not set in environment variables');
+      throw new Error('OpenAI API key is required for voice interviewer');
+    }
+    
     this.openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY
     });
     this.config = config;
     this.setupConversationContext();
     this.setupQuestions();
+    
+    console.log('SimpleVoiceInterviewer initialized successfully');
   }
 
   private setupConversationContext() {
@@ -71,25 +80,36 @@ You are interviewing ${this.config.candidateName || 'the candidate'}. Create a n
   }
 
   async startInterview(): Promise<void> {
-    this.emit('connected');
-    
-    // Start with the first question
-    const firstQuestion = this.questions[0];
-    
-    // Generate speech for the first question
-    const audioResponse = await this.generateSpeech(firstQuestion);
-    
-    const assistantMessage = {
-      role: 'assistant' as const,
-      content: firstQuestion,
-      timestamp: new Date()
-    };
-    
-    this.transcript.push(assistantMessage);
-    this.emit('assistant-message', assistantMessage);
-    this.emit('audio-response', audioResponse);
-    
-    this.currentQuestionIndex++;
+    try {
+      console.log('Starting voice interview...');
+      this.emit('connected');
+      
+      // Start with the first question
+      const firstQuestion = this.questions[0];
+      console.log('First question prepared:', firstQuestion);
+      
+      // Generate speech for the first question
+      console.log('Generating speech for first question...');
+      const audioResponse = await this.generateSpeech(firstQuestion);
+      console.log('Speech generation successful, audio size:', audioResponse.length, 'bytes');
+      
+      const assistantMessage = {
+        role: 'assistant' as const,
+        content: firstQuestion,
+        timestamp: new Date()
+      };
+      
+      this.transcript.push(assistantMessage);
+      this.emit('assistant-message', assistantMessage);
+      this.emit('audio-response', audioResponse);
+      
+      this.currentQuestionIndex++;
+      console.log('Voice interview started successfully');
+    } catch (error) {
+      console.error('Error starting voice interview:', error);
+      this.emit('error', error);
+      throw error;
+    }
   }
 
   async processUserResponse(userText: string, timeLeft?: number): Promise<void> {
@@ -240,6 +260,8 @@ Keep your response conversational and under 50 words.`;
 
   private async generateSpeech(text: string): Promise<Buffer> {
     try {
+      console.log('Generating speech for text:', text.substring(0, 50) + '...');
+      
       const response = await this.openai.audio.speech.create({
         model: 'tts-1-hd', // Use high-definition model for better quality
         voice: 'nova', // Professional female voice, good for interviews
@@ -249,9 +271,12 @@ Keep your response conversational and under 50 words.`;
       });
 
       const buffer = Buffer.from(await response.arrayBuffer());
+      console.log('Speech generated successfully, size:', buffer.length, 'bytes');
       return buffer;
     } catch (error) {
       console.error('Error generating speech:', error);
+      console.error('OpenAI API key present:', !!process.env.OPENAI_API_KEY);
+      console.error('Text length:', text.length);
       throw error;
     }
   }
