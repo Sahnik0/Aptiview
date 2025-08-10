@@ -307,6 +307,12 @@ function setupWebSocketServer(server) {
                             }
                             catch (error) {
                                 console.error('Error processing audio:', error);
+                                console.error('Error details:', {
+                                    message: error instanceof Error ? error.message : 'Unknown error',
+                                    stack: error instanceof Error ? error.stack : 'No stack trace',
+                                    audioSize: message.audioData ? Buffer.from(message.audioData, 'base64').length : 'unknown',
+                                    mimeType: message.mimeType || 'unknown'
+                                });
                                 // Handle transcription errors more gracefully
                                 if (error instanceof Error) {
                                     if (error.message.includes('too short') || error.message.includes('3-4 seconds')) {
@@ -322,6 +328,22 @@ function setupWebSocketServer(server) {
                                     else if (error.message.includes('Failed to transcribe')) {
                                         // Handle our custom transcription failures
                                         await ws.voiceInterviewer.processUserResponse('[unclear audio - could you repeat that?]');
+                                    }
+                                    else if (error.message.includes('temporary audio file') || error.message.includes('temp file')) {
+                                        // Filesystem issues on deployment
+                                        console.error('DEPLOYMENT ISSUE: Temp file creation failed. Check filesystem permissions.');
+                                        ws.send(JSON.stringify({
+                                            type: 'error',
+                                            message: 'Server configuration issue. Please contact support.'
+                                        }));
+                                    }
+                                    else if (error.message.includes('401') || error.message.includes('authentication')) {
+                                        // OpenAI API key issues
+                                        console.error('DEPLOYMENT ISSUE: OpenAI API authentication failed');
+                                        ws.send(JSON.stringify({
+                                            type: 'error',
+                                            message: 'Voice processing temporarily unavailable. Please try again later.'
+                                        }));
                                     }
                                     else {
                                         // For other errors, let the interviewer handle it conversationally

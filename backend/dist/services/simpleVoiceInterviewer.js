@@ -251,6 +251,7 @@ Keep your response conversational and under 50 words.`;
         try {
             const fs = require('fs');
             const path = require('path');
+            const os = require('os');
             // Determine file extension based on mime type
             let extension = 'webm'; // default
             if (mimeType) {
@@ -267,15 +268,26 @@ Keep your response conversational and under 50 words.`;
                 else if (mimeType.includes('opus'))
                     extension = 'opus';
             }
-            const tempFilePath = path.join(__dirname, `temp_audio_${Date.now()}.${extension}`);
+            // Use system temp directory (writable on all platforms including Render)
+            const tempDir = os.tmpdir();
+            const tempFilePath = path.join(tempDir, `temp_audio_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${extension}`);
             console.log(`Processing audio: ${audioBuffer.length} bytes, format: ${mimeType || 'unknown'}, extension: ${extension}`);
+            console.log(`Temp file path: ${tempFilePath}`);
+            console.log(`Temp directory: ${tempDir}`);
             // Validate minimum audio size - increased threshold for longer recordings
             if (audioBuffer.length < 8000) {
                 console.warn(`Audio buffer too small: ${audioBuffer.length} bytes - likely too short for transcription`);
                 throw new Error('Audio too short for transcription - please speak for at least 3-4 seconds');
             }
-            // Write buffer to temporary file
-            fs.writeFileSync(tempFilePath, audioBuffer);
+            // Write buffer to temporary file with error handling
+            try {
+                fs.writeFileSync(tempFilePath, audioBuffer);
+            }
+            catch (writeError) {
+                console.error('Failed to write temp file:', writeError);
+                console.error('Temp directory writable?', tempDir);
+                throw new Error('Failed to create temporary audio file for transcription');
+            }
             // Verify file was created and has content
             const fileStats = fs.statSync(tempFilePath);
             console.log(`Temp file created: ${tempFilePath}, size: ${fileStats.size} bytes`);
@@ -356,6 +368,18 @@ Keep your response conversational and under 50 words.`;
                 catch (error) {
                     console.error(`Transcription attempt failed:`, error);
                     lastError = error;
+                    // Log specific OpenAI API errors for debugging
+                    if (error instanceof Error) {
+                        if (error.message.includes('401')) {
+                            console.error('OpenAI API authentication failed - check OPENAI_API_KEY');
+                        }
+                        else if (error.message.includes('429')) {
+                            console.error('OpenAI API rate limit exceeded');
+                        }
+                        else if (error.message.includes('500') || error.message.includes('502') || error.message.includes('503')) {
+                            console.error('OpenAI API server error - temporary issue');
+                        }
+                    }
                     continue;
                 }
             }
