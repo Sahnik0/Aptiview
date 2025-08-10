@@ -64,14 +64,17 @@ const steps = ["Select Template", "Customize", "Select Jobs"]
 
 // Scoring total component to prevent infinite loops
 const ScoringTotal = ({ form }: { form: any }) => {
-  const scoring = form.watch("scoring")
+  const communicationWeight = form.watch("scoring.communicationWeight")
+  const technicalWeight = form.watch("scoring.technicalWeight")
+  const problemSolvingWeight = form.watch("scoring.problemSolvingWeight")
+  const culturalFitWeight = form.watch("scoring.culturalFitWeight")
+  
   const total = React.useMemo(() => {
-    if (!scoring) return 0
-    return (scoring.communicationWeight || 0) + 
-           (scoring.technicalWeight || 0) + 
-           (scoring.problemSolvingWeight || 0) + 
-           (scoring.culturalFitWeight || 0)
-  }, [scoring])
+    return (communicationWeight || 0) + 
+           (technicalWeight || 0) + 
+           (problemSolvingWeight || 0) + 
+           (culturalFitWeight || 0)
+  }, [communicationWeight, technicalWeight, problemSolvingWeight, culturalFitWeight])
   
   const isValid = Math.abs(total - 100) <= 5
   
