@@ -26,6 +26,27 @@ app.use(cors({
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: process.env.JSON_BODY_LIMIT || '15mb' }));
 
+// Pre-router health handler: accept ANY method to avoid 405 from monitors
+app.use((req, res, next) => {
+  // Normalize the path without query params
+  const pathOnly = req.path.replace(/\/$/, '');
+  if (pathOnly === '/api/health' || pathOnly === '/api/health/ping') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,POST,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+    if (req.method === 'OPTIONS') {
+      return res.status(204).end();
+    }
+
+    const body = pathOnly.endsWith('/ping')
+      ? { status: 'ok', message: 'pong' }
+      : { status: 'ok', message: 'healthy' };
+    return res.status(200).json(body);
+  }
+  return next();
+});
+
 // Configure Clerk middleware with proper environment variables
 app.use(clerkMiddleware({
   publishableKey: process.env.CLERK_PUBLISHABLE_KEY,
