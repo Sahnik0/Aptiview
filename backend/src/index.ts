@@ -5,6 +5,7 @@ import path from 'path';
 import { prisma } from './db';
 import userRoutes from './routes/user';
 import interviewRoutes from './routes/interview';
+import mainRouter from './routes';
 import { clerkMiddleware } from '@clerk/express';
 import { setupWebSocketServer } from './websocketServer';
 
@@ -113,8 +114,7 @@ app.get('/env-check', (req, res) => {
   });
 });
 
-app.use('/api/users', userRoutes);
-app.use('/api/interviews', interviewRoutes);
+app.use('/api', mainRouter);
 
 const PORT = process.env.PORT || 4000;
 
