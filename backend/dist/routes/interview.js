@@ -18,8 +18,14 @@ const createAIInterviewer = (job, application, resumeSummary) => {
     return new aiInterviewer_1.AIInterviewer({
         jobTitle: job.title,
         jobDescription: job.description,
-        interviewContext: job.interviewContext || undefined,
-        customQuestions: job.customQuestions ? [job.customQuestions] : undefined,
+        // Enhanced template configuration fields
+        aiTemplateId: job.aiTemplateId || undefined,
+        customInterviewContext: job.customInterviewContext || job.interviewContext || undefined,
+        customQuestions: job.customQuestionsList || (job.customQuestions ? [job.customQuestions] : undefined),
+        scoringWeights: job.scoringWeights ? JSON.parse(job.scoringWeights) : undefined,
+        interviewDuration: job.interviewDuration || undefined,
+        difficultyLevel: job.difficultyLevel || undefined,
+        // Candidate information
         candidateResumeUrl: application?.resumeUrl,
         candidateCoverLetter: application?.coverLetter,
         resumeSummary,
