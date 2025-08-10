@@ -67,7 +67,8 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
         const token = await getToken()
         if (!token) throw new Error("Not authenticated")
         
-        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000"
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000" || "https://aptiview.onrender.com"
+        if (!backendUrl) throw new Error("Backend URL not configured")
         const res = await fetch(`${backendUrl}/api/users/jobs/${jobId}`, {
           headers: {
             "Authorization": `Bearer ${token}`,
@@ -106,7 +107,7 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
     async function checkIfAlreadyApplied() {
       if (!jobId) return;
       const token = await getToken();
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000" || "https://aptiview.onrender.com";
       const res = await fetch(`${backendUrl}/api/users/applications`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -162,7 +163,7 @@ export default function CandidateApplyClientPage({ jobId, initialJobTitle }: Can
         });
       }
       
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000" || "https://aptiview.onrender.com";
       const res = await fetch(`${backendUrl}/api/users/jobs/${job.id}/apply`, {
         method: "POST",
         headers: {

@@ -500,7 +500,7 @@ export default function RecruiterInterviewDashboard() {
                                   src={
                                     screenshot.imageUrl?.startsWith('http')
                                       ? screenshot.imageUrl
-                                      : `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000'}${screenshot.imageUrl}`
+                                      : `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000'}${screenshot.imageUrl}` 
                                   }
                                   alt="Screenshot"
                                   className="w-full h-20 object-cover rounded"

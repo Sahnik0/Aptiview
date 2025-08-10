@@ -26,7 +26,7 @@ export function RoleRedirector() {
     if (!isLoaded || !user) return;
     let cancelled = false;
     async function checkProfile() {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000" || "https://aptiview.onrender.com";
       const token = await getToken();
       if (!token) return;
       try {

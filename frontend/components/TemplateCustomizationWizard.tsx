@@ -275,7 +275,7 @@ export default function TemplateCustomizationWizard({
   const fetchTemplates = async () => {
     try {
       const token = await getToken()
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000"
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000" || "https://aptiview.onrender.com"
       
       const response = await fetch(`${backendUrl}/api/users/ai-templates`, {
         headers: {
@@ -298,7 +298,7 @@ export default function TemplateCustomizationWizard({
   const fetchJobs = async () => {
     try {
       const token = await getToken()
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000"
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000" || "https://aptiview.onrender.com"
       
       const response = await fetch(`${backendUrl}/api/users/my-jobs`, {
         headers: {
@@ -321,7 +321,7 @@ export default function TemplateCustomizationWizard({
     try {
       setLoading(true)
       const token = await getToken()
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000"
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000" || "https://aptiview.onrender.com"
 
       // Apply the customized template to selected jobs
       const response = await fetch(`${backendUrl}/api/users/apply-template-to-jobs`, {
