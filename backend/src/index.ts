@@ -5,7 +5,7 @@ import path from 'path';
 import { prisma } from './db';
 import userRoutes from './routes/user';
 import interviewRoutes from './routes/interview';
-import mainRouter from './routes';
+import healthRoutes from './routes/health';
 import { clerkMiddleware } from '@clerk/express';
 import { setupWebSocketServer } from './websocketServer';
 
@@ -19,7 +19,7 @@ app.use(cors({
     process.env.FRONTEND_URL || "http://localhost:3000"
   ],
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }));
 // Increase body size limits to handle base64-encoded resumes
@@ -114,7 +114,9 @@ app.get('/env-check', (req, res) => {
   });
 });
 
-app.use('/api', mainRouter);
+app.use('/api/users', userRoutes);
+app.use('/api/interviews', interviewRoutes);
+app.use('/api/health', healthRoutes);
 
 const PORT = process.env.PORT || 4000;
 
