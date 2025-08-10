@@ -21,6 +21,7 @@ export function setupWebSocketServer(server: Server) {
     // Move these to the top of the handler so they are always in scope
     let interviewTimeout: NodeJS.Timeout | null = null;
     let interviewEndTime: Date;
+  let voiceStarted = false;
 
     // Define the function FIRST so it is available everywhere in this scope
   function endInterviewWithConclusion() {
@@ -195,32 +196,7 @@ export function setupWebSocketServer(server: Server) {
         }));
       });
 
-      // Mark interview as started if not already
-      if (!interview.actualStartedAt) {
-        await prisma.interview.update({
-          where: { id: interview.id },
-          data: { 
-            actualStartedAt: new Date(),
-            isActive: true
-          }
-        });
-      }
-
-      // Start voice interview
-      try {
-        console.log('Starting voice interview...');
-        await ws.voiceInterviewer.startInterview();
-        console.log('Voice interview started successfully');
-      } catch (error) {
-        console.error('Failed to start voice interview:', error);
-        ws.send(JSON.stringify({ 
-          type: 'error', 
-          message: 'Failed to start voice interview. Please refresh and try again.' 
-        }));
-        ws.close(1011, 'Failed to start voice interview');
-        return;
-      }
-
+      // Send interview meta to client, but DO NOT start voice yet.
       ws.send(JSON.stringify({ 
         type: 'interview-ready',
         interview: {
@@ -231,19 +207,8 @@ export function setupWebSocketServer(server: Server) {
         }
       }));
 
-      // Interview duration timer (10 minutes)
-      // Calculate interviewEndTime
-      const interviewStartTime = interview.actualStartedAt ? new Date(interview.actualStartedAt) : new Date();
-      const INTERVIEW_DURATION_SECONDS = 10 * 60;
-      interviewEndTime = new Date(interviewStartTime.getTime() + INTERVIEW_DURATION_SECONDS * 1000);
-
-      // Start 10-minute timer
-      interviewTimeout = setTimeout(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'assistant-message', message: { role: 'assistant', content: 'Thank you for your time. The interview is now concluding as we have reached the 10-minute limit. I will summarize your responses and end the session.' } }));
-          endInterviewWithConclusion();
-        }
-      }, 10 * 60 * 1000);
+      // Defer starting the interview until client explicitly requests it
+      let voiceStarted = false;
 
     } catch (error) {
       console.error('Error setting up interview:', error);
@@ -257,7 +222,47 @@ export function setupWebSocketServer(server: Server) {
         const message = JSON.parse(data.toString());
 
         switch (message.type) {
+          case 'start-interview': {
+            if (voiceStarted) break; // no-op if already started
+            try {
+              // Mark interview as started if not already
+              await prisma.interview.update({
+                where: { id: ws.interviewId! },
+                data: { actualStartedAt: new Date(), isActive: true }
+              });
+            } catch {}
+
+            // Compute end time from now and start the 10-minute timer
+            const INTERVIEW_DURATION_SECONDS = 10 * 60;
+            interviewEndTime = new Date(Date.now() + INTERVIEW_DURATION_SECONDS * 1000);
+            if (interviewTimeout) clearTimeout(interviewTimeout);
+            interviewTimeout = setTimeout(() => {
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'assistant-message', message: { role: 'assistant', content: 'Thank you for your time. The interview is now concluding as we have reached the 10-minute limit. I will summarize your responses and end the session.' } }));
+                endInterviewWithConclusion();
+              }
+            }, 10 * 60 * 1000);
+
+            try {
+              console.log('Starting voice interview (on client request)...');
+              await ws.voiceInterviewer!.startInterview();
+              voiceStarted = true;
+              console.log('Voice interview started successfully');
+            } catch (error) {
+              console.error('Failed to start voice interview:', error);
+              ws.send(JSON.stringify({ 
+                type: 'error', 
+                message: 'Failed to start voice interview. Please refresh and try again.' 
+              }));
+            }
+            break;
+          }
+
           case 'audio-data':
+            if (!voiceStarted) {
+              // Ignore audio if interview not started yet
+              break;
+            }
             // Handle audio transcription and processing
             if (message.audioData && ws.voiceInterviewer) {
               try {
